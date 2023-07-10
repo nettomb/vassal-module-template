@@ -186,8 +186,8 @@ public final class MyChatter extends VASSAL.build.module.Chatter implements Comm
     // Sample console command to roll a d6 when /d6 is typed as a chat line.
     if (s.toLowerCase().startsWith("/d6")) {
       Random ran = GameModule.getGameModule().getRNG();
-      int d6 = ran.nextInt(6);
-      send("* D6 = " + d6); // Messages starting with "*" display in game message font. Messages starting with "-" display as a system message.
+      int d6 = ran.nextInt(6) + 1;
+      send("* Result of D6 = " + d6); // Messages starting with "*" display in game message font. Messages starting with "-" display as a system message.
     }
 
     return false;
