@@ -1,207 +1,191 @@
 package my_custom_component;
 
-import VASSAL.build.AbstractConfigurable;
+import VASSAL.build.AbstractBuildable;
 import VASSAL.build.Buildable;
 import VASSAL.build.GameModule;
-import VASSAL.build.module.documentation.HelpFile;
-import VASSAL.build.module.properties.PromptProperty;
-import VASSAL.build.module.properties.StringConfigurer;
+import VASSAL.build.module.Map;
+import VASSAL.build.widget.PieceSlot;
+import VASSAL.command.AddPiece;
+import VASSAL.command.Command;
 import VASSAL.command.CommandEncoder;
-import VASSAL.configure.Configurer;
-import VASSAL.tools.image.ImageUtils;
-import org.w3c.dom.Element;
+import VASSAL.command.RemovePiece;
+import VASSAL.counters.BasicPiece;
+import VASSAL.counters.Stack;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.awt.image.BufferedImage;
-import java.io.File;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.io.IOException;
+import java.net.URL;
 
+public final class AnimatedDice extends AbstractBuildable implements CommandEncoder, Buildable{
+    private GameModule gameModule;
+    private String buttonText = "Show Piece";
+    private static final String DICE_IMAGE_FOLDER = "my_custom_component/images";
+    private static final int IMAGE_SIZE = 300;
 
+    private PieceSlot imagePieceSlot;
+    private boolean isImageVisible;
+    private JButton customButton;
 
+    private Stack stack;
+    private BasicPiece displayPiece; // The piece that will be used to display the images of dices
 
-public class AnimatedDice extends AbstractConfigurable implements CommandEncoder {
+    private Map currentMap;
 
-    private static final String DICE_IMAGE_FOLDER = "DiceImages";
-    private static final int IMAGE_SIZE = 100;
-    private static final int FRAME_RATE = 30;
-
-    private final Timer timer;
-    private final JLabel diceImageLabel;
-
-    private List<BufferedImage> diceImages;
-    private int currentIndex;
-
-    public AnimatedDice() {
-        diceImageLabel = new JLabel();
-        diceImageLabel.setPreferredSize(new Dimension(IMAGE_SIZE, IMAGE_SIZE));
-
-        timer = new Timer(1000 / FRAME_RATE, new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                displayNextImage();
-            }
-        });
-
-        loadDiceImages();
+    public AnimatedDice(){
+        isImageVisible = false;
+        imagePieceSlot = null;
+        stack = new Stack();
+        currentMap = GameModule.getGameModule().getComponentsOf(Map.class).get(0);
+        gameModule = GameModule.getGameModule();
     }
 
-    private void loadDiceImages() {
-        diceImages = new ArrayList<>();
+    public static void main(String[] args) {
 
-        // Get the working directory path
-        String workingDirectory = GameModule.getGameModule().getDataArchive().getName(); //// ALTERED
-
-        // Create the folder path for the dice images
-        String diceImagesPath = workingDirectory + File.separator + DICE_IMAGE_FOLDER;
-
-        // Load the dice images from the folder
-        File diceImagesFolder = new File(diceImagesPath);
-        File[] imageFiles = diceImagesFolder.listFiles();
-
-        if (imageFiles != null) {
-            for (File file : imageFiles) {
-                if (file.isFile()) {
-                    BufferedImage image = ImageIO.read(file); //// THROW EXCEPTION
-                    if (image != null && ImageUtils.isCompatibleImage(image)) {
-                        diceImages.add(image);
-                    }
-                }
-            }
-        }
-
-        // Initialize the current index
-        currentIndex = 0;
     }
 
-    private void displayNextImage() {
-        if (currentIndex >= diceImages.size()) {
-            return;
-        }
-
-        BufferedImage image = diceImages.get(currentIndex);
-        ImageIcon icon = new ImageIcon(image.getScaledInstance(IMAGE_SIZE, IMAGE_SIZE, Image.SCALE_SMOOTH));
-        diceImageLabel.setIcon(icon);
-
-        if (currentIndex < diceImages.size() - 1) {
-            currentIndex++;
-        }
-    }
 
     @Override
     public void addTo(Buildable parent) {
-        super.addTo(parent);
-        if (parent instanceof Map) {
-            Map map = (Map) parent;
-            map.getBoard().add(diceImageLabel, BorderLayout.PAGE_START);
-            map.getBoard().revalidate();
-            map.getBoard().repaint();
+        if (parent instanceof GameModule) {
+            gameModule = (GameModule) parent;
+
+            // Create your button instance
+            customButton = new JButton(buttonText);
+            customButton.setToolTipText("Displays Image on map");
+
+            customButton.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    toggleImageVisibility(displayPiece);
+                }
+            });
+
+            // Add the button to the toolbar
+            gameModule.getToolBar().add(customButton);
         }
     }
 
-    @Override
-    public void removeFrom(Buildable parent) {
-        super.removeFrom(parent);
-        if (parent instanceof Map) {
-            Map map = (Map) parent;
-            map.getBoard().remove(diceImageLabel);
-            map.getBoard().revalidate();
-            map.getBoard().repaint();
+    private void toggleImageVisibility(BasicPiece piece){
+        if (isImageVisible){
+            hideImage(displayPiece);
+        } else {
+            createPiece();
+            displayImage(displayPiece);
         }
     }
-    @Override
-    public void setAttribute(String name, Object value) {
-        super.setAttribute(name, value);
-        if ("pressed".equals(name)) {
-            boolean pressed = Boolean.parseBoolean(value.toString());
-            if (pressed) {
-                startAnimation();
-            } else {
-                stopAnimation();
+
+    private void createPiece(){
+
+        displayPiece = new BasicPiece() {
+            @Override
+            public void draw(Graphics g, int x, int y, Component obs, double zoom) {
+                super.draw(g, x, y, obs, zoom);
+                Image image = getImage();
+                // Draw the image at the specified (x, y) coordinates
+                if (image != null) {
+                    g.drawImage(image, x, y, obs);
+                }
+            }
+
+            public Image getImage(){
+                // Load the image from the "image" folder (make sure the image.jpg file is present in the image folder)
+                try
+                {
+                    //InputStream is = getClass().getClassLoader().getResourceAsStream("/" + DICE_IMAGE_FOLDER + "/dices.jpg");
+                    URL imageURL = getClass().getResource("/" + DICE_IMAGE_FOLDER + "/dices.jpg");
+                    if (imageURL != null) {
+                        Image image = ImageIO.read(imageURL);
+                        return image;
+                    } else {
+                        System.out.println("Image file not found");
+                        System.out.println("Resource path: " + imageURL.getPath());
+                        throw new IOException("Image file not found.");
+                    }
+                } catch(IOException e)
+                {
+                    e.printStackTrace();
+                }
+                return null;
+            }
+        };
+
+        int xCoordinate = 0;
+        int yCoordinate = 0;
+        currentMap.placeAt(displayPiece, new Point(xCoordinate,yCoordinate));
+
+        //gameModule.save(); // see if it is necessary
+
+        PieceSlot pieceSlot = new PieceSlot(displayPiece);
+
+        currentMap.placeAt(displayPiece, new Point(xCoordinate,yCoordinate));
+    }
+
+    private void displayImage(BasicPiece piece){
+        if (imagePieceSlot == null){
+            imagePieceSlot = new PieceSlot(piece);
+
+            if (currentMap != null){
+                AddPiece addPiece = new AddPiece (piece);
+                addPiece.execute();
+
+                isImageVisible = true;
+                customButton.setText("Hide Image");
             }
         }
     }
 
-    private void startAnimation() {
-        if (diceImages.isEmpty()) {
-            return;
-        }
+    private void hideImage(BasicPiece piece) {
+        if (imagePieceSlot != null) {
+            imagePieceSlot = null;
 
-        currentIndex = 0;
-        timer.start();
-    }
+            if (currentMap != null) {
+                RemovePiece removePiece = new RemovePiece (piece);
+                removePiece.execute();
 
-    private void stopAnimation() {
-        timer.stop();
-    }
-
-    @Override
-    public String[] getAttributeNames() {
-        return new String[]{"pressed"};
-    }
-
-    @Override
-    public Class<?>[] getAttributeTypes() {
-        return new Class<?>[]{Boolean.class};
-    }
-
-    @Override
-    public String[] getAttributeDescriptions() {
-        return new String[]{"Pressed"};
-    }
-
-    @Override
-    public void build(Element element) {
-        super.build(element);
-        PromptProperty.buildBoolProp(this, Boolean.class, "pressed");
-    }
-
-    @Override
-    public String[] getAllowableConfigureComponents() {
-        return new String[]{Configurer.BUTTON_BAR, Configurer.TOOLBAR_BUTTON};
-    }
-
-    @Override
-    public Class<? extends Configurer> getConfigurerClass() {
-        return StringConfigurer.class;
-    }
-
-    @Override
-    public HelpFile getHelpFile() {
-        return HelpFile.builder("animated-dice")
-                .description("Animated Dice")
-                .url("https://example.com/animated-dice")
-                .build();
-    }
-
-    @Override
-    public Class<? extends Command>[] getAllowedCommands() {
-        return new Class[]{DiceAnimationCommand.class};
-    }
-
-    public static class DiceAnimationCommand extends Command {
-        private static final long serialVersionUID = 1L;
-
-        public DiceAnimationCommand() {
-            this(null);
-        }
-
-        public DiceAnimationCommand(CommandEncoder commandEncoder) {
-            super(commandEncoder);
-        }
-
-        @Override
-        public void execute() {
-            // No-op, since the animation is handled within the AnimatedDice class
-        }
-
-        @Override
-        public String toString() {
-            return "Dice Animation Command";
+                isImageVisible = false;
+                customButton.setText("Show Image");
+            }
         }
     }
+
+    public void removeFrom(Buildable parent) {
+        if (parent instanceof GameModule) {
+            GameModule gameModule = (GameModule) parent;
+
+            // Remove the button from the toolbar
+            gameModule.getToolBar().remove(customButton);
+        }
+    }
+
+
+
+    @Override
+    public String[] getAttributeNames(){
+        return new String[]{};
+    }
+    @Override
+    public void setAttribute(String attribute, Object object){
+
+    }
+
+    @Override
+    public String getAttributeValueString(String value){
+        return new String ("");
+    }
+
+    @Override
+    public Command decode(String s) {
+        return null;
+    }
+    @Override
+    public String encode(Command command){
+        return null;
+    }
+
+}
+
+

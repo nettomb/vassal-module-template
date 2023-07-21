@@ -24,8 +24,7 @@ import VASSAL.configure.ColorConfigurer;
 import VASSAL.i18n.Resources;
 import VASSAL.preferences.Prefs;
 
-import java.awt.Color;
-import java.awt.Font;
+import java.awt.*;
 import java.util.Random;
 
 /**
