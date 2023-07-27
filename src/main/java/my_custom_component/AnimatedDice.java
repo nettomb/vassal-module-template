@@ -4,19 +4,16 @@ import VASSAL.build.AbstractBuildable;
 import VASSAL.build.Buildable;
 import VASSAL.build.GameModule;
 import VASSAL.build.module.Map;
-import VASSAL.build.widget.PieceSlot;
-import VASSAL.command.AddPiece;
 import VASSAL.command.Command;
 import VASSAL.command.CommandEncoder;
-import VASSAL.command.RemovePiece;
 import VASSAL.counters.BasicPiece;
-import VASSAL.counters.Stack;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 
@@ -24,23 +21,19 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
     private GameModule gameModule;
     private String buttonText = "Show Piece";
     private static final String DICE_IMAGE_FOLDER = "my_custom_component/images";
+    private static int filesInFolder;
     private static final int IMAGE_SIZE = 300;
-
-    private PieceSlot imagePieceSlot;
     private boolean isImageVisible;
     private JButton customButton;
-
-    private Stack stack;
-    private BasicPiece displayPiece; // The piece that will be used to display the images of dices
-
+    private Image[] images; // to be fed with the dice images that will be drawn on the pieces
+    private BasicPiece[] pieces; // pieces are added to this array to be displayed in order
     private Map currentMap;
 
     public AnimatedDice(){
         isImageVisible = false;
-        imagePieceSlot = null;
-        stack = new Stack();
         currentMap = GameModule.getGameModule().getComponentsOf(Map.class).get(0);
         gameModule = GameModule.getGameModule();
+        filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + DICE_IMAGE_FOLDER);
     }
 
     public static void main(String[] args) {
@@ -60,7 +53,7 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
             customButton.addActionListener(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    toggleImageVisibility(displayPiece);
+                    toggleImagesVisibility();
                 }
             });
 
@@ -69,85 +62,72 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
         }
     }
 
-    private void toggleImageVisibility(BasicPiece piece){
+    private void toggleImagesVisibility(){
         if (isImageVisible){
-            hideImage(displayPiece);
+            for (BasicPiece piece: pieces) {
+                hideImage(piece);
+            }
+            isImageVisible = false;
+            customButton.setText("Show Image");
         } else {
-            createPiece();
-            displayImage(displayPiece);
+            getImages(); // We must populate the images array before calling createPieces.
+            createPieces();
+            for (BasicPiece piece: pieces) {
+                displayImage(piece);
+            }
+            isImageVisible = true;
+            customButton.setText("Hide Image");
         }
     }
 
-    private void createPiece(){
-
-        displayPiece = new BasicPiece() {
-            @Override
-            public void draw(Graphics g, int x, int y, Component obs, double zoom) {
-                super.draw(g, x, y, obs, zoom);
-                Image image = getImage();
-                // Draw the image at the specified (x, y) coordinates
-                if (image != null) {
-                    g.drawImage(image, x, y, obs);
-                }
-            }
-
-            public Image getImage(){
-                // Load the image from the "image" folder (make sure the image.jpg file is present in the image folder)
-                try
-                {
-                    //InputStream is = getClass().getClassLoader().getResourceAsStream("/" + DICE_IMAGE_FOLDER + "/dices.jpg");
-                    URL imageURL = getClass().getResource("/" + DICE_IMAGE_FOLDER + "/dices.jpg");
-                    if (imageURL != null) {
-                        Image image = ImageIO.read(imageURL);
-                        return image;
-                    } else {
-                        System.out.println("Image file not found");
-                        System.out.println("Resource path: " + imageURL.getPath());
-                        throw new IOException("Image file not found.");
-                    }
-                } catch(IOException e)
-                {
-                    e.printStackTrace();
-                }
-                return null;
-            }
-        };
-
-        int xCoordinate = 0;
-        int yCoordinate = 0;
-        currentMap.placeAt(displayPiece, new Point(xCoordinate,yCoordinate));
-
-        //gameModule.save(); // see if it is necessary
-
-        PieceSlot pieceSlot = new PieceSlot(displayPiece);
-
-        currentMap.placeAt(displayPiece, new Point(xCoordinate,yCoordinate));
-    }
-
     private void displayImage(BasicPiece piece){
-        if (imagePieceSlot == null){
-            imagePieceSlot = new PieceSlot(piece);
-
-            if (currentMap != null){
-                AddPiece addPiece = new AddPiece (piece);
-                addPiece.execute();
-
-                isImageVisible = true;
-                customButton.setText("Hide Image");
-            }
+        if (currentMap != null){
+            int xCoordinate = 0;
+            int yCoordinate = 0;
+            currentMap.placeAt(piece, new Point(xCoordinate,yCoordinate));
         }
     }
 
     private void hideImage(BasicPiece piece) {
-        if (imagePieceSlot != null) {
-            imagePieceSlot = null;
+        if (currentMap != null) {
+            currentMap.removePiece(piece);
+            currentMap.repaint();
+        }
+    }
 
-            if (currentMap != null) {
-                RemovePiece removePiece = new RemovePiece (piece);
-                removePiece.execute();
+    private void createPieces(){
+        int numberOfPieces = images.length;
+        pieces = new BasicPiece[numberOfPieces];
+        for (int i = 0; i < numberOfPieces; i++){
+            final int index = i; // make index final, so it can be accessed from the inner class
+            BasicPiece piece = new BasicPiece() {
+                private final Image image = images[index];
+                @Override
+                public void draw(Graphics g, int x, int y, Component obs, double zoom) {
+                    super.draw(g, x, y, obs, zoom);
+                    // Draw the image at the specified (x, y) coordinates
+                    g.drawImage(image, x, y, obs);
+                }
+            };
+            System.out.println("piece :" + piece.toString());
+            pieces[i] = piece;
+        }
+    }
 
-                isImageVisible = false;
-                customButton.setText("Show Image");
+    // Retrieve dice images from the proper folder and places them into the images Array;
+    public void getImages(){
+        images = new Image[filesInFolder];
+        System.out.println("# images: " + filesInFolder);
+        for (int i = 0; i < filesInFolder; i++) {
+            try {
+                URL imageURL = getClass().getResource("/" + DICE_IMAGE_FOLDER + "/dices" + i + ".jpg");
+                if (imageURL != null) {
+                    images[i] = (ImageIO.read(imageURL));
+                } else {
+                    throw new IOException("Image file not found.");
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
             }
         }
     }
@@ -159,6 +139,23 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
             // Remove the button from the toolbar
             gameModule.getToolBar().remove(customButton);
         }
+    }
+
+    private static int countFilesInFolder(String folderPath) {
+        File folder = new File(folderPath);
+        if (!folder.exists() || !folder.isDirectory()) {
+            System.out.println(folderPath);
+            System.out.println("The specified folder does not exist or is not a directory.");
+            return 0;
+        }
+
+        String[] files = folder.list();
+        if (files == null) {
+            System.out.println("Error listing files in the folder.");
+            return 0;
+        }
+
+        return files.length;
     }
 
 
