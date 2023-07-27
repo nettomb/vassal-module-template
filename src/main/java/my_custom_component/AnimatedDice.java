@@ -25,6 +25,7 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
     private static final int IMAGE_SIZE = 300;
     private boolean isImageVisible;
     private JButton customButton;
+    private long FRAME_RATE;
     private Image[] images; // to be fed with the dice images that will be drawn on the pieces
     private BasicPiece[] pieces; // pieces are added to this array to be displayed in order
     private Map currentMap;
@@ -34,6 +35,7 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
         currentMap = GameModule.getGameModule().getComponentsOf(Map.class).get(0);
         gameModule = GameModule.getGameModule();
         filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + DICE_IMAGE_FOLDER);
+        FRAME_RATE = 30;
     }
 
     public static void main(String[] args) {
@@ -72,8 +74,8 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
         } else {
             getImages(); // We must populate the images array before calling createPieces.
             createPieces();
-            for (BasicPiece piece: pieces) {
-                displayImage(piece);
+            for (int i=0; i < pieces.length; i++) {
+                displayImage(pieces[i]);
             }
             isImageVisible = true;
             customButton.setText("Hide Image");
@@ -109,8 +111,8 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
                     g.drawImage(image, x, y, obs);
                 }
             };
-            System.out.println("piece :" + piece.toString());
             pieces[i] = piece;
+            System.out.println("piece at slot " + i + "is named: " + piece.toString());
         }
     }
 
@@ -120,7 +122,7 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
         System.out.println("# images: " + filesInFolder);
         for (int i = 0; i < filesInFolder; i++) {
             try {
-                URL imageURL = getClass().getResource("/" + DICE_IMAGE_FOLDER + "/dices" + i + ".jpg");
+                URL imageURL = getClass().getResource("/" + DICE_IMAGE_FOLDER + "/dices" + i + ".png");
                 if (imageURL != null) {
                     images[i] = (ImageIO.read(imageURL));
                 } else {
