@@ -9,12 +9,16 @@ import VASSAL.command.CommandEncoder;
 import VASSAL.counters.BasicPiece;
 
 import javax.imageio.ImageIO;
+import javax.sound.sampled.AudioInputStream;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.Clip;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URL;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -23,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 public final class AnimatedDice extends AbstractBuildable implements CommandEncoder, Buildable{
     private GameModule gameModule;
     private static final String DICE_IMAGE_FOLDER = "my_custom_component/images";
+    private static final String SOUNDS_FOLDER = "my_custom_component/sounds";
     private static int filesInFolder;
     private static final int IMAGE_SIZE = 300;
     private boolean isImageVisible;
@@ -69,38 +74,31 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
         }
     }
 
-    /*private void toggleImagesVisibility(){
-        if (isImageVisible){
-            for (BasicPiece piece: pieces) {
-                hideImage(piece);
-            }
-            isImageVisible = false;
-            customButton.setText("Show Image");
-        } else {
-            getImages(); // We must populate the images array before calling createPieces.
-            createPieces();
-            for (int i=0; i < pieces.length; i++) {
-                displayImage(pieces[i]);
-            }
-            isImageVisible = true;
-            customButton.setText("Hide Image");
+    private void getSounds(){
+        try{
+            InputStream soundsURL = getClass().getResourceAsStream("/" + SOUNDS_FOLDER + "/" + String.format("roll" + ".wav"));
+            AudioInputStream audioInputStream = AudioSystem.getAudioInputStream(soundsURL);
+            Clip clip = AudioSystem.getClip();
+            clip.open(audioInputStream);
+            new Thread(() -> {
+                clip.start();
+                while (clip.getFramePosition() < clip.getFrameLength()){
+                    Thread.yield();
+                }
+                clip.close();
+                Thread.currentThread().interrupt();
+            }).start();
+                audioInputStream.close();
+        } catch (Exception e){
+            System.out.println("Exception thrown");
+            e.printStackTrace();
         }
     }
-
-    private void displayImage(BasicPiece piece){
-        if (currentMap != null){
-            int xCoordinate = 0;
-            int yCoordinate = 0;
-            currentMap.placeAt(piece, new Point(xCoordinate,yCoordinate));
-        }
-    }*/
 
     private void toggleImagesVisibility(){
         if (isImageVisible){
             customButton.setEnabled(false);
-            for (BasicPiece piece: pieces) {
-                hideImage(piece);
-            }
+            hideImage(pieces[pieces.length - 1]); // Hide last frame, which remained visible
             isImageVisible = false;
             customButton.setText("Show Image");
             customButton.setEnabled(true);
@@ -109,6 +107,7 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
             getImages(); // We must populate the images array before calling createPieces.
             createPieces();
             scheduler = Executors.newSingleThreadScheduledExecutor();
+            getSounds();
             scheduler.scheduleAtFixedRate(this::displayImage, 0, FRAME_RATE, TimeUnit.MILLISECONDS);
         }
     }
@@ -137,7 +136,12 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
             }
             int xCoordinate = 0;
             int yCoordinate = 0;
+
             currentMap.placeAt(pieces[currentFrame], new Point(xCoordinate,yCoordinate));
+            if (currentFrame > 1){
+                currentMap.removePiece(pieces[currentFrame - 1]);
+            }
+
             currentFrame = (currentFrame + 1);
         }
     }
@@ -164,22 +168,17 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
                 }
             };
             pieces[i] = piece;
-            System.out.println("piece at slot " + i + "is named: " + piece);
         }
     }
 
     // Retrieve dice images from the proper folder and places them into the images Array;
     public void getImages(){
         images = new Image[filesInFolder];
-        System.out.println("# images: " + filesInFolder);
         for (int i = 0; i < filesInFolder; i++) {
             try {
                 URL imageURL = getClass().getResource("/" + DICE_IMAGE_FOLDER + "/" + String.format("dices%04d", i) + ".png");
-                System.out.println(String.format("/dices%04d.png", i));
-                System.out.println("URL: " + imageURL);
                 if (imageURL != null) {
                     images[i] = (ImageIO.read(imageURL));
-                    System.out.println(images[i]);
                 } else {
                     throw new IOException("Image file not found.");
                 }
