@@ -16,6 +16,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -36,6 +37,8 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
     int currentFrame;
     private ScheduledExecutorService scheduler; // Controls the frame rate of the displayed images
     private Image[] images; // to be fed with the dice images that will be drawn on the pieces
+    private byte[] dieAudioData; // Sounds for single die
+    private byte[] diceAudioData; // Sounds for multiple dice
     private BasicPiece[] pieces; // pieces are added to this array to be displayed in order
     private final Map currentMap;
 
@@ -46,6 +49,7 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
         filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + DICE_IMAGE_FOLDER);
         FRAME_RATE = 1000/30;
         currentFrame = 0;
+        loadSounds(); // Preloads sounds for dices
     }
 
     public static void main(String[] args) {
@@ -74,10 +78,29 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
         }
     }
 
-    private void getSounds(){
+    private void loadSounds(){
+        InputStream dieSoundsURL = getClass().getResourceAsStream("/" + SOUNDS_FOLDER + "/" + String.format("roll" + ".wav"));
+        InputStream diceSoundsURL = getClass().getResourceAsStream("/" + SOUNDS_FOLDER + "/" + String.format("roll" + ".wav")); // For more than one die
+
+        // Preload the audio data into memory
+        try {
+            dieAudioData = dieSoundsURL.readAllBytes();
+            diceAudioData = diceSoundsURL.readAllBytes(); // for more than one die
+        } catch (IOException e){
+            System.out.println("Exception reading sounds data");
+            e.printStackTrace();
+        }
+        try {
+            dieSoundsURL.close(); // Close the stream
+            diceSoundsURL.close();
+        } catch (IOException e){
+            e.printStackTrace();
+        }
+    }
+
+    private void playSounds(){
         try{
-            InputStream soundsURL = getClass().getResourceAsStream("/" + SOUNDS_FOLDER + "/" + String.format("roll" + ".wav"));
-            AudioInputStream audioInputStream = AudioSystem.getAudioInputStream(soundsURL);
+            AudioInputStream audioInputStream = AudioSystem.getAudioInputStream(new ByteArrayInputStream(dieAudioData));
             Clip clip = AudioSystem.getClip();
             clip.open(audioInputStream);
             new Thread(() -> {
@@ -88,7 +111,11 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
                 clip.close();
                 Thread.currentThread().interrupt();
             }).start();
+            try{
                 audioInputStream.close();
+            } catch(IOException e){
+                e.printStackTrace();
+            }
         } catch (Exception e){
             System.out.println("Exception thrown");
             e.printStackTrace();
@@ -107,7 +134,7 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
             getImages(); // We must populate the images array before calling createPieces.
             createPieces();
             scheduler = Executors.newSingleThreadScheduledExecutor();
-            getSounds();
+            playSounds();
             scheduler.scheduleAtFixedRate(this::displayImage, 0, FRAME_RATE, TimeUnit.MILLISECONDS);
         }
     }
