@@ -6,6 +6,7 @@ import VASSAL.build.GameModule;
 import VASSAL.build.module.Map;
 import VASSAL.command.Command;
 import VASSAL.command.CommandEncoder;
+import VASSAL.command.RemovePiece;
 import VASSAL.counters.BasicPiece;
 
 import javax.imageio.ImageIO;
@@ -47,7 +48,7 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
         currentMap = GameModule.getGameModule().getComponentsOf(Map.class).get(0);
         gameModule = GameModule.getGameModule();
         filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + DICE_IMAGE_FOLDER);
-        FRAME_RATE = 1000/30;
+        FRAME_RATE = 700/30;
         currentFrame = 0;
         loadSounds(); // Preloads sounds for dices
     }
@@ -111,7 +112,7 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
                 clip.close();
                 Thread.currentThread().interrupt();
             }).start();
-            try{
+            try{  // Works without the try block, but seems to delay the first use of sounds
                 audioInputStream.close();
             } catch(IOException e){
                 e.printStackTrace();
@@ -121,14 +122,21 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
             e.printStackTrace();
         }
     }
+    
 
     private void toggleImagesVisibility(){
         if (isImageVisible){
             customButton.setEnabled(false);
             hideImage(pieces[pieces.length - 1]); // Hide last frame, which remained visible
             isImageVisible = false;
+            // We definitely remove each piece so that no artifacts are presented on screen.
+            for (BasicPiece piece: pieces){
+                Command remove = new RemovePiece(piece);
+                remove.execute();
+            }
             customButton.setText("Show Image");
             customButton.setEnabled(true);
+            currentMap.getView().repaint();
         } else {
             customButton.setEnabled(false);
             getImages(); // We must populate the images array before calling createPieces.
