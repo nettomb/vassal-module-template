@@ -21,6 +21,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
@@ -35,7 +36,7 @@ import java.util.concurrent.TimeUnit;
 
 public final class AnimatedDice extends AbstractBuildable implements CommandEncoder, Buildable{
     private GameModule gameModule;
-    private static final String DICE_IMAGE_FOLDER = "my_custom_component/images";
+    private static final String IMAGES_FOLDER = "my_custom_component/images";
     private static final String SOUNDS_FOLDER = "my_custom_component/sounds";
     private static int filesInFolder;
     private static final int IMAGE_SIZE = 300;
@@ -50,6 +51,8 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
     private Image[] images; // to be fed with the dice images that will be drawn on the pieces
     private byte[] dieAudioData; // Sounds for single die
     private byte[] diceAudioData; // Sounds for multiple dice
+    private Cursor dieCursor;
+    private boolean actionInProgress = false;
     private BasicPiece[] pieces; // pieces are added to this array to be displayed in order
     private final Map currentMap;
 
@@ -57,12 +60,19 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
         isImageVisible = false;
         currentMap = GameModule.getGameModule().getComponentsOf(Map.class).get(0);
         gameModule = GameModule.getGameModule();
-        filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + DICE_IMAGE_FOLDER);
+        filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + IMAGES_FOLDER + "/DiceImages/");
         FRAME_RATE = 700/30;
         currentFrame = 0;
         nDice = 3;
         nSides = 6;
         loadSounds(); // Preloads sounds for dices
+        URL dieCursorImageURL = getClass().getResource("/" + IMAGES_FOLDER + "/" + "DieCursor.png");
+        try {
+            BufferedImage dieCursorImage = ImageIO.read(dieCursorImageURL);
+            dieCursor = Toolkit.getDefaultToolkit().createCustomCursor(dieCursorImage, new Point(0,0), "Custom Die Cursor");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     public static void main(String[] args) {
@@ -223,7 +233,7 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
         images = new Image[filesInFolder];
         for (int i = 0; i < filesInFolder; i++) {
             try {
-                URL imageURL = getClass().getResource("/" + DICE_IMAGE_FOLDER + "/" + String.format("dices%04d", i) + ".png");
+                URL imageURL = getClass().getResource("/" + IMAGES_FOLDER + "/DiceImages/" + String.format("dices%04d", i) + ".png");
                 if (imageURL != null) {
                     images[i] = (ImageIO.read(imageURL));
                 } else {
@@ -345,34 +355,38 @@ public final class AnimatedDice extends AbstractBuildable implements CommandEnco
                     System.out.println("NEW ROLL");
                     super.mousePressed(e);
                     mouseButtonPressed = true;
-                    mouseBiasFactor = new int[nDice]; // We'll the number of factors correspondent to the number of dice;
-                    Arrays.fill(mouseBiasFactor, 1);
-                    final int[] counter = new int[]{0}; // Use of single element array in order to be able to change it inside runnable.
+                    if (!isImageVisible) { // doesn't execute when pressed to hide the dices
+                        setCursor(dieCursor);
+                        mouseBiasFactor = new int[nDice]; // We'll the number of factors correspondent to the number of dice;
+                        Arrays.fill(mouseBiasFactor, 1);
+                        final int[] counter = new int[]{0}; // Use of single element array in order to be able to change it inside runnable.
 
-                    timer = new java.util.Timer();
-                    timer.schedule(new TimerTask() {
-                        @Override
-                        public void run() {
-                            System.out.println("Mouse Position: " + MouseInfo.getPointerInfo().getLocation());
+                        timer = new java.util.Timer();
+                        timer.schedule(new TimerTask() {
+                            @Override
+                            public void run() {
+                                System.out.println("Mouse Position: " + MouseInfo.getPointerInfo().getLocation());
 
-                            mouseBiasFactor[counter[0]] += MouseInfo.getPointerInfo().getLocation().x + MouseInfo.getPointerInfo().getLocation().y;
-                            if (mouseBiasFactor[counter[0]] > 10000)
-                                mouseBiasFactor[counter[0]] = mouseBiasFactor[counter[0]] - 10000;
+                                mouseBiasFactor[counter[0]] += MouseInfo.getPointerInfo().getLocation().x + MouseInfo.getPointerInfo().getLocation().y;
+                                if (mouseBiasFactor[counter[0]] > 10000)
+                                    mouseBiasFactor[counter[0]] = mouseBiasFactor[counter[0]] - 10000;
 
-                            if (counter[0] == mouseBiasFactor.length - 1){
-                                counter[0] = 0;
-                            } else{
-                                counter[0] = counter[0] + 1;
+                                if (counter[0] == mouseBiasFactor.length - 1) {
+                                    counter[0] = 0;
+                                } else {
+                                    counter[0] = counter[0] + 1;
+                                }
+
+                                System.out.println("Bias " + counter[0] + " = " + mouseBiasFactor[counter[0]]);
                             }
-
-                            System.out.println("Bias " + counter[0] + " = " + mouseBiasFactor[counter[0]]);
-                        }
-                    }, 0, 10);
+                        }, 0, 10);
+                    }
                 }
 
                 @Override
                 public void mouseReleased(MouseEvent e) {
                     super.mouseReleased(e);
+                    setCursor(Cursor.getDefaultCursor());
                     if (mouseButtonPressed && isEnabled()) {
                         timer.cancel();
                         delayedActionListener.actionPerformed(new ActionEvent(this, ActionEvent.ACTION_PERFORMED, ""));
