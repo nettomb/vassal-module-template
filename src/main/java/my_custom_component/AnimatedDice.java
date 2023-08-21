@@ -42,7 +42,7 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
     private final String ANIMATED_DICE_PREFERENCES = "Animated 3D Dice";
     private final String FRAME_RATE_SETTINGS = "frameRateSettings";
     private final String DICE_POSITION_SETTINGS = "dicePositionSettings";
-    private int dicePosition;
+    private int dicePositionSettings;
     private int MAX_HORIZONTAL_OFFSET = 0;
     private int IMAGE_SIZE = 250;
     private boolean isImageVisible; // establish if last dice frame is still visible in the screen so that the button is in Hide mode.
@@ -72,7 +72,7 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
         gameModule = GameModule.getGameModule();
         currentMap = GameModule.getGameModule().getComponentsOf(Map.class).get(0);
         filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + IMAGES_FOLDER + "/DiceImages/");
-        dicePosition = 0;
+        dicePositionSettings = 0;
         frameRate = 45;
         currentFrame = 0;
         nDice = 3;
@@ -140,11 +140,10 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
             //if (currentMap.getView().getWidth() > IMAGE_SIZE)
              //   MAX_HORIZONTAL_OFFSET = currentMap.getView().getWidth() - IMAGE_SIZE;
             MAX_HORIZONTAL_OFFSET = currentMap.getView().getMaximumSize().width; // IMPLEMENT!!
-            System.out.println("MAP METHODS");
 
-            final IntConfigurer dicePositionSettings = new IntConfigurer(DICE_POSITION_SETTINGS, "Screen Position (MAX: " + MAX_HORIZONTAL_OFFSET + " / MIN: " + 0 + ")", dicePosition);
+            final IntConfigurer dicePositionSettings = new IntConfigurer(DICE_POSITION_SETTINGS, "Screen Position (MAX: " + MAX_HORIZONTAL_OFFSET + " / MIN: " + 0 + ")", this.dicePositionSettings);
             gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, dicePositionSettings);
-            dicePosition = Integer.parseInt(gameModule.getPrefs().getValue(DICE_POSITION_SETTINGS).toString());
+            this.dicePositionSettings = Integer.parseInt(gameModule.getPrefs().getValue(DICE_POSITION_SETTINGS).toString());
 
             dicePositionSettings.addFocusListener(new FocusListener() {
                 Object initialValue;
@@ -161,7 +160,7 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
                         gameModule.getPrefs().setValue(DICE_POSITION_SETTINGS, initialValue);
                     } else {
                         gameModule.getPrefs().setValue(DICE_POSITION_SETTINGS, presentValue);
-                        dicePosition = Integer.parseInt(gameModule.getPrefs().getValue(DICE_POSITION_SETTINGS).toString());
+                        AnimatedDice.this.dicePositionSettings = Integer.parseInt(gameModule.getPrefs().getValue(DICE_POSITION_SETTINGS).toString());
                     }
                 }
             });
@@ -240,7 +239,17 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
             createPieces();
             scheduler = Executors.newSingleThreadScheduledExecutor();
             playSounds(dieAudioData);
-            scheduler.scheduleAtFixedRate(this::displayImage, 0, imageDelay, TimeUnit.MILLISECONDS);
+
+            Rectangle rectangle = currentMap.getView().getVisibleRect();
+            // If dicePosition (set up in preferences), which is the offset of the animation to the left,,
+            // is larger than the width of the window minus the width of the images, we adjust it to the maximum place to which the animation may be offset without cropping the image.
+            int adjustedDicePositionSettings = (dicePositionSettings > (rectangle.width - IMAGE_SIZE))? Math.max (rectangle.width - IMAGE_SIZE, 0): dicePositionSettings;
+            int min_x = rectangle.x; // leftmost point of the current visible rectangle
+            int x = (min_x + adjustedDicePositionSettings); // we add the adjusted offset to the leftmost point of the window.
+            int y = rectangle.y;
+
+            Runnable task = () -> displayImage(x,y);
+            scheduler.scheduleAtFixedRate(task, 0, imageDelay, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -258,7 +267,7 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
         }
     }
 
-    private void displayImage(){
+    private void displayImage(int x, int y){
         if (currentMap != null){
             if (currentFrame == pieces.length) {
                 stopImageDisplay();
@@ -267,9 +276,10 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
                 customButton.setText("Hide Dice");
                 return;
             }
-            int xCoordinate = dicePosition;
-            int yCoordinate = 0;
-            System.out.println("dicePosition :" + dicePosition);
+
+            int xCoordinate = x;
+            int yCoordinate = y;
+
             currentMap.placeAt(pieces[currentFrame], new Point(xCoordinate,yCoordinate));
             if (currentFrame > 1){
                 currentMap.removePiece(pieces[currentFrame - 1]);
