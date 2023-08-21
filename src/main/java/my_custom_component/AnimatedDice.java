@@ -39,9 +39,12 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
     private static final String IMAGES_FOLDER = "my_custom_component/images";
     private static final String SOUNDS_FOLDER = "my_custom_component/sounds";
     private static int filesInFolder;
-    final String ANIMATED_DICE_PREFERENCES = "Animated 3D Dice";
-    final String FRAME_RATE_SETTINGS = "frameRateSettings";
-    private static final int IMAGE_SIZE = 300;
+    private final String ANIMATED_DICE_PREFERENCES = "Animated 3D Dice";
+    private final String FRAME_RATE_SETTINGS = "frameRateSettings";
+    private final String DICE_POSITION_SETTINGS = "dicePositionSettings";
+    private int dicePosition;
+    private int MAX_HORIZONTAL_OFFSET = 0;
+    private int IMAGE_SIZE = 250;
     private boolean isImageVisible; // establish if last dice frame is still visible in the screen so that the button is in Hide mode.
     private boolean isAnimationInProgress = false; // prevents mousePress action before animation finishes.
     private JButton customButton;
@@ -66,9 +69,11 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
 
     public AnimatedDice(){
         isImageVisible = false;
-        currentMap = GameModule.getGameModule().getComponentsOf(Map.class).get(0);
         gameModule = GameModule.getGameModule();
+        currentMap = GameModule.getGameModule().getComponentsOf(Map.class).get(0);
         filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + IMAGES_FOLDER + "/DiceImages/");
+        dicePosition = 0;
+        frameRate = 45;
         currentFrame = 0;
         nDice = 3;
         nSides = 6;
@@ -93,7 +98,6 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
     public void addTo(Buildable parent) {
         if (parent instanceof GameModule) {
             gameModule = (GameModule) parent;
-
             // Create your button instance
             customButton = new DelayedActionButton("Roll Dice", new ActionListener() {
                 @Override
@@ -108,8 +112,8 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
 
             // ADD SETTINGS TO PREFERENCE WINDOW
 
-            final IntConfigurer frameRateSettings = new IntConfigurer(FRAME_RATE_SETTINGS, "Frame Rate (MAX: " + MAX_FRAME_RATE + " / MIN: " + MIN_FRAME_RATE + ")", 45);
-
+            // FRAME RATE
+            final IntConfigurer frameRateSettings = new IntConfigurer(FRAME_RATE_SETTINGS, "Frame Rate (MAX: " + MAX_FRAME_RATE + " / MIN: " + MIN_FRAME_RATE + ")", frameRate);
             gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, frameRateSettings);
             frameRate = Integer.parseInt(gameModule.getPrefs().getValue(FRAME_RATE_SETTINGS).toString());
 
@@ -123,9 +127,41 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
                 public void focusLost(FocusEvent e) {
                     Object presentValue = gameModule.getPrefs().getValue(FRAME_RATE_SETTINGS);
                     if (Integer.parseInt(presentValue.toString()) > MAX_FRAME_RATE || Integer.parseInt(presentValue.toString()) < MIN_FRAME_RATE) {
-                            gameModule.getPrefs().setValue(FRAME_RATE_SETTINGS, initialValue);
+                        gameModule.getPrefs().setValue(FRAME_RATE_SETTINGS, initialValue);
                     } else {
-                            gameModule.getPrefs().setValue(FRAME_RATE_SETTINGS, presentValue);
+                        gameModule.getPrefs().setValue(FRAME_RATE_SETTINGS, presentValue);
+                        frameRate = Integer.parseInt(gameModule.getPrefs().getValue(FRAME_RATE_SETTINGS).toString());
+                    }
+                }
+            });
+
+
+            // DICE POSITION
+            //if (currentMap.getView().getWidth() > IMAGE_SIZE)
+             //   MAX_HORIZONTAL_OFFSET = currentMap.getView().getWidth() - IMAGE_SIZE;
+            MAX_HORIZONTAL_OFFSET = currentMap.getView().getMaximumSize().width; // IMPLEMENT!!
+            System.out.println("MAP METHODS");
+
+            final IntConfigurer dicePositionSettings = new IntConfigurer(DICE_POSITION_SETTINGS, "Screen Position (MAX: " + MAX_HORIZONTAL_OFFSET + " / MIN: " + 0 + ")", dicePosition);
+            gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, dicePositionSettings);
+            dicePosition = Integer.parseInt(gameModule.getPrefs().getValue(DICE_POSITION_SETTINGS).toString());
+
+            dicePositionSettings.addFocusListener(new FocusListener() {
+                Object initialValue;
+
+                @Override
+                public void focusGained(FocusEvent e) {
+                    initialValue = gameModule.getPrefs().getValue(DICE_POSITION_SETTINGS);
+                }
+
+                @Override
+                public void focusLost(FocusEvent e) {
+                    Object presentValue = gameModule.getPrefs().getValue(DICE_POSITION_SETTINGS);
+                    if (Integer.parseInt(presentValue.toString()) > MAX_HORIZONTAL_OFFSET || Integer.parseInt(presentValue.toString()) < 0) {
+                        gameModule.getPrefs().setValue(DICE_POSITION_SETTINGS, initialValue);
+                    } else {
+                        gameModule.getPrefs().setValue(DICE_POSITION_SETTINGS, presentValue);
+                        dicePosition = Integer.parseInt(gameModule.getPrefs().getValue(DICE_POSITION_SETTINGS).toString());
                     }
                 }
             });
@@ -198,7 +234,6 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
         } else {
             isAnimationInProgress = true;
             customButton.setEnabled(false);
-            frameRate = Integer.parseInt(gameModule.getPrefs().getValue(FRAME_RATE_SETTINGS).toString()); // Read the frame rate from preferences
             imageDelay = (1000/frameRate); // transform frame rate into milliseconds delay
             RollDices (nDice, nSides);
             getImages(); // We must populate the images array before calling createPieces.
@@ -232,9 +267,9 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
                 customButton.setText("Hide Dice");
                 return;
             }
-            int xCoordinate = 0;
+            int xCoordinate = dicePosition;
             int yCoordinate = 0;
-
+            System.out.println("dicePosition :" + dicePosition);
             currentMap.placeAt(pieces[currentFrame], new Point(xCoordinate,yCoordinate));
             if (currentFrame > 1){
                 currentMap.removePiece(pieces[currentFrame - 1]);
