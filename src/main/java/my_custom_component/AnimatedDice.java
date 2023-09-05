@@ -137,8 +137,6 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
 
 
             // DICE POSITION
-            //if (currentMap.getView().getWidth() > IMAGE_SIZE)
-             //   MAX_HORIZONTAL_OFFSET = currentMap.getView().getWidth() - IMAGE_SIZE;
             MAX_HORIZONTAL_OFFSET = currentMap.getView().getMaximumSize().width; // IMPLEMENT!!
 
             final IntConfigurer dicePositionSettings = new IntConfigurer(DICE_POSITION_SETTINGS, "Screen Position (MAX: " + MAX_HORIZONTAL_OFFSET + " / MIN: " + 0 + ")", this.dicePositionSettings);
