@@ -26,19 +26,20 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
-import java.util.Arrays;
-import java.util.Random;
-import java.util.TimerTask;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 public final class AnimatedDice extends AbstractConfigurable implements CommandEncoder, Buildable{
     private GameModule gameModule;
     private static final String IMAGES_FOLDER = "my_custom_component/images";
     private static final String SOUNDS_FOLDER = "my_custom_component/sounds";
-    private static int filesInFolder;
+    private String RED_DIE_FOLDER_PATH = System.getProperty("user.dir") + "/target/classes/my_custom_component/images/DiceImages/RED DIE/";
+    private String WHITE_DIE_FOLDER_PATH = System.getProperty("user.dir") + "/target/classes/my_custom_component/images/DiceImages/WHITE DIE/";
     private final String ANIMATED_DICE_PREFERENCES = "Animated 3D Dice";
     private final String FRAME_RATE_SETTINGS = "frameRateSettings";
     private final String DICE_POSITION_SETTINGS = "dicePositionSettings";
@@ -58,6 +59,10 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
     private final int MIN_FRAME_RATE = 35;
     private ScheduledExecutorService scheduler; // Controls the frame rate of the displayed images
     private Image[] images; // to be fed with the dice images that will be drawn on the pieces
+    private java.util.Map<String, Image[]> diceImages;
+    private int[] lastDiceImageFolderIndexes = new int[]{0,0}; // Keeps the last two dice image folders indexes stored to prevent immediate repetition of same animation
+    private java.util.Map<Integer, java.util.Map<Integer, ArrayList<String>>> hesitantDiceFolderIndexes; // keeps a list of folders which bring animation of paired hesitant dice, for which the player can set the rarity of occurrence.
+    private boolean feedingImages; // Checks if the thread for loading images is still running
     private byte[] dieAudioData;
     private byte[] diceAudioData;
     private byte[] shakingDiceAudioData;
@@ -71,11 +76,10 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
         isImageVisible = false;
         gameModule = GameModule.getGameModule();
         currentMap = GameModule.getGameModule().getComponentsOf(Map.class).get(0);
-        filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + IMAGES_FOLDER + "/DiceImages/");
         dicePositionSettings = 0;
         frameRate = 45;
         currentFrame = 0;
-        nDice = 3;
+        nDice = 2;
         nSides = 6;
 
         // GET RESOURCES
@@ -87,6 +91,10 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
         } catch (IOException e) {
             e.printStackTrace();
         }
+        // LOAD FIRST SET OF IMAGES
+        getImages();
+        // CREATE THE ARRAY INDICATING WHAT FOLDERS BRING HESITANT DIE ANIMATIONS
+        CreateHesitantDieFolderMask();
     }
 
     public static void main(String[] args) {
@@ -216,24 +224,40 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
 
 
     private void toggleImagesVisibility(){
+        // ENDS THE ANIMATION
         if (isImageVisible){
             customButton.setEnabled(false);
             hideImage(pieces[pieces.length - 1]); // Hide last frame, which remained visible
             isImageVisible = false;
-            // We definitely remove each piece so that no artifacts are presented on screen.
-            for (BasicPiece piece: pieces){
-                Command remove = new RemovePiece(piece);
-                remove.execute();
+            // We definitely remove each piece so that no artifacts are presented on screen and load new images for each result
+            try{
+                new Thread(() -> {
+                    feedingImages = true;
+                    for (BasicPiece piece: pieces){
+                        Command remove = new RemovePiece(piece);
+                        remove.execute();
+                    }
+                    getImages();
+                    while (feedingImages){
+                        Thread.yield();
+                    }
+                    customButton.setText("Roll Dice");
+                    customButton.setEnabled(true);
+                    currentMap.getView().repaint();
+                    Thread.currentThread().interrupt();
+                }).start();
+            } catch (Exception e){
+                System.out.println("Exception thrown");
+                e.printStackTrace();
             }
-            customButton.setText("Roll Dice");
-            customButton.setEnabled(true);
-            currentMap.getView().repaint();
+
+
         } else {
+            // BEGINS THE ANIMATION
             isAnimationInProgress = true;
             customButton.setEnabled(false);
             imageDelay = (1000/frameRate); // transform frame rate into milliseconds delay
             RollDices (nDice, nSides);
-            getImages(); // We must populate the images array before calling createPieces.
             createPieces();
             scheduler = Executors.newSingleThreadScheduledExecutor();
             playSounds(dieAudioData);
@@ -312,12 +336,13 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
         }
     }
 
-    // Retrieve dice images from the proper folder and places them into the images Array;
+   /* // Retrieve dice images from the proper folder and places them into the images Array;
     public void getImages(){
+        int filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + IMAGES_FOLDER + "/DiceImages/RED DIE/R1_1/");
         images = new Image[filesInFolder];
         for (int i = 0; i < filesInFolder; i++) {
             try {
-                URL imageURL = getClass().getResource("/" + IMAGES_FOLDER + "/DiceImages/" + String.format("dices%04d", i) + ".png");
+                URL imageURL = getClass().getResource("/" + IMAGES_FOLDER + "/DiceImages/RED DIE/R1_1/" + String.format("die%04d", i) + ".png");
                 if (imageURL != null) {
                     images[i] = (ImageIO.read(imageURL));
                 } else {
@@ -327,6 +352,31 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
                 e.printStackTrace();
             }
         }
+        feedingImages = false;
+    }*/
+    // Retrieve dice images from the proper folder and places them into the images Array;
+    public void getImages(){
+        String[] diceFolders = DrawDiceFolders(); // chooses the next animation folders to preload
+        diceImages = new HashMap<>();
+        int filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + IMAGES_FOLDER + "/DiceImages/RED DIE/R1_1/");
+        images = new Image[filesInFolder];
+        for (int i = 0; i < filesInFolder; i++) {
+            try {
+                URL imageURL = getClass().getResource("/" + IMAGES_FOLDER + "/DiceImages/RED DIE/R1_1/" + String.format("die%04d", i) + ".png");
+                if (imageURL != null) {
+                    images[i] = (ImageIO.read(imageURL));
+                } else {
+                    throw new IOException("Image file not found.");
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        feedingImages = false;
+    }
+
+    private String[] DrawDiceFolders(){
+        return null;
     }
 
     private void RollDices (int numberOfDice, int numberOfSides){
@@ -381,20 +431,53 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
     private static int countFilesInFolder(String folderPath) {
         File folder = new File(folderPath);
         if (!folder.exists() || !folder.isDirectory()) {
-            System.out.println(folderPath);
-            System.out.println("The specified folder does not exist or is not a directory.");
+            java.lang.System.out.println(folderPath);
+            java.lang.System.out.println("The specified folder does not exist or is not a directory.");
             return 0;
         }
 
         String[] files = folder.list();
         if (files == null) {
-            System.out.println("Error listing files in the folder.");
+            java.lang.System.out.println("Error listing files in the folder.");
             return 0;
         }
 
         return files.length;
     }
 
+    // Creates a mask that indicates what animation indexes (the number just to the right of the die color letter in the folder) bring hesitant die animations
+    private void CreateHesitantDieFolderMask(){
+        File directory = new File (RED_DIE_FOLDER_PATH);
+        if (directory.exists() && directory.isDirectory()){
+            File[] subdirectories = directory.listFiles(File::isDirectory);
+            hesitantDiceFolderIndexes = new HashMap<>();
+            int counter = 0;
+            if (subdirectories != null){
+                // Pattern for paired hesitant die animation: Ex.  "R2_6_3"
+                Pattern hesitantDieFolderPattern = Pattern.compile("^[A-Za-z]\\d+_\\d_\\d$");
+                for (File subdirectory : subdirectories){
+                    String folderName = subdirectory.getName();
+
+                    Matcher matcher1 = hesitantDieFolderPattern.matcher(folderName);
+                    if (matcher1.matches()){
+                        String[] parts = folderName.split("_");
+
+                        int animationIndex = Integer.parseInt(parts[0].substring(1));
+                        int result = Integer.parseInt(parts[2]);
+                        if (!hesitantDiceFolderIndexes.containsKey(animationIndex)) {
+                            hesitantDiceFolderIndexes.put(animationIndex, new HashMap<>()); // is a hesitant die animation
+                            for (int i = 1; i <= 6; i++) {
+                                hesitantDiceFolderIndexes.get(animationIndex).put(i, new ArrayList<String>());
+                            }
+                        }
+                        hesitantDiceFolderIndexes.get(animationIndex).get(result).add("_" + parts[1]);
+
+                        System.out.println("Number of animation: " + animationIndex + " brings the following patterns for result " + parts[2] + ": " + hesitantDiceFolderIndexes.get(animationIndex).get(result));
+                    }
+                }
+            }
+        }
+    }
 
     @Override
     public Command decode(String s) {
