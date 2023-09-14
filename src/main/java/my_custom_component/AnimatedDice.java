@@ -36,10 +36,10 @@ import java.util.regex.Pattern;
 
 public final class AnimatedDice extends AbstractConfigurable implements CommandEncoder, Buildable{
     private GameModule gameModule;
-    private static final String IMAGES_FOLDER = "my_custom_component/images";
-    private static final String SOUNDS_FOLDER = "my_custom_component/sounds";
-    private String RED_DIE_FOLDER_PATH = System.getProperty("user.dir") + "/target/classes/my_custom_component/images/DiceImages/RED DIE/";
-    private String WHITE_DIE_FOLDER_PATH = System.getProperty("user.dir") + "/target/classes/my_custom_component/images/DiceImages/WHITE DIE/";
+    //private static final String IMAGES_FOLDER = System.getProperty("user.dir") + "/resources/images/";
+    //private static final String SOUNDS_FOLDER = System.getProperty("user.dir") + "/resources/sounds/";
+    private String RED_DIE_FOLDER_PATH = "images/DiceImages/RED DIE/";
+    private String WHITE_DIE_FOLDER_PATH = "images/DiceImages/WHITE DIE/";
     private final String ANIMATED_DICE_PREFERENCES = "Animated 3D Dice";
     private final String FRAME_RATE_SETTINGS = "frameRateSettings";
     private final String DICE_POSITION_SETTINGS = "dicePositionSettings";
@@ -84,7 +84,7 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
 
         // GET RESOURCES
         loadSounds(); // Preloads sounds for dices
-        URL dieCursorImageURL = getClass().getResource("/" + IMAGES_FOLDER + "/" + "DieCursor.png");
+        URL dieCursorImageURL = getClass().getResource("images/DieCursor.png");
         try {
             BufferedImage dieCursorImage = ImageIO.read(dieCursorImageURL);
             dieCursor = Toolkit.getDefaultToolkit().createCustomCursor(dieCursorImage, new Point(0,0), "Custom Die Cursor");
@@ -174,22 +174,22 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
     }
 
     private void loadSounds(){
-        InputStream dieSoundsURL = getClass().getResourceAsStream("/" + SOUNDS_FOLDER + "/" + String.format("Selected1" + ".wav"));
-        InputStream diceSoundsURL = getClass().getResourceAsStream("/" + SOUNDS_FOLDER + "/" + String.format("Selected2" + ".wav")); // For more than one die
-        InputStream shakingDiceSoundsURL = getClass().getResourceAsStream("/" + SOUNDS_FOLDER + "/" + String.format("Selected3" + ".wav")); // For shaking dice
+        InputStream dieSoundStream = getClass().getResourceAsStream( "sounds/Selected1" + ".wav");
+        InputStream diceSoundStream = getClass().getResourceAsStream("sounds/Selected2" + ".wav"); // For more than one die
+        InputStream shakingDiceSoundStream = getClass().getResourceAsStream("sounds/Selected3" + ".wav"); // For shaking dice
 
         // Preload the audio data into memory
         try {
-            dieAudioData = dieSoundsURL.readAllBytes();
-            diceAudioData = diceSoundsURL.readAllBytes();
-            shakingDiceAudioData = shakingDiceSoundsURL.readAllBytes();
+            dieAudioData = dieSoundStream.readAllBytes();
+            diceAudioData = diceSoundStream.readAllBytes();
+            shakingDiceAudioData = shakingDiceSoundStream.readAllBytes();
         } catch (IOException e){
             System.out.println("Exception reading sounds data");
             e.printStackTrace();
         }
         try {
-            dieSoundsURL.close(); // Close the stream
-            diceSoundsURL.close();
+            dieSoundStream.close(); // Close the stream
+            diceSoundStream.close();
         } catch (IOException e){
             e.printStackTrace();
         }
@@ -336,33 +336,33 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
         }
     }
 
-   /* // Retrieve dice images from the proper folder and places them into the images Array;
-    public void getImages(){
-        int filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + IMAGES_FOLDER + "/DiceImages/RED DIE/R1_1/");
-        images = new Image[filesInFolder];
-        for (int i = 0; i < filesInFolder; i++) {
-            try {
-                URL imageURL = getClass().getResource("/" + IMAGES_FOLDER + "/DiceImages/RED DIE/R1_1/" + String.format("die%04d", i) + ".png");
-                if (imageURL != null) {
-                    images[i] = (ImageIO.read(imageURL));
-                } else {
-                    throw new IOException("Image file not found.");
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-        feedingImages = false;
-    }*/
+    /* // Retrieve dice images from the proper folder and places them into the images Array;
+     public void getImages(){
+         int filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + IMAGES_FOLDER + "/DiceImages/RED DIE/R1_1/");
+         images = new Image[filesInFolder];
+         for (int i = 0; i < filesInFolder; i++) {
+             try {
+                 URL imageURL = getClass().getResource("/" + IMAGES_FOLDER + "/DiceImages/RED DIE/R1_1/" + String.format("die%04d", i) + ".png");
+                 if (imageURL != null) {
+                     images[i] = (ImageIO.read(imageURL));
+                 } else {
+                     throw new IOException("Image file not found.");
+                 }
+             } catch (IOException e) {
+                 e.printStackTrace();
+             }
+         }
+         feedingImages = false;
+     }*/
     // Retrieve dice images from the proper folder and places them into the images Array;
     public void getImages(){
         String[] diceFolders = DrawDiceFolders(); // chooses the next animation folders to preload
         diceImages = new HashMap<>();
-        int filesInFolder = countFilesInFolder(System.getProperty("user.dir") + "/target/classes/" + IMAGES_FOLDER + "/DiceImages/RED DIE/R1_1/");
+        int filesInFolder = countFilesInFolder( RED_DIE_FOLDER_PATH + "/R1_1/");
         images = new Image[filesInFolder];
         for (int i = 0; i < filesInFolder; i++) {
             try {
-                URL imageURL = getClass().getResource("/" + IMAGES_FOLDER + "/DiceImages/RED DIE/R1_1/" + String.format("die%04d", i) + ".png");
+                URL imageURL = getClass().getResource(RED_DIE_FOLDER_PATH + "/R1_1/" + String.format("die%04d", i) + ".png");
                 if (imageURL != null) {
                     images[i] = (ImageIO.read(imageURL));
                 } else {
@@ -585,4 +585,5 @@ public final class AnimatedDice extends AbstractConfigurable implements CommandE
     }
 
 }
+
 
