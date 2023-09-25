@@ -114,7 +114,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         URL iconURL = null;
         try {
             iconURL = dataArchive.getURL("Cursor/DieCursor.png");
-            System.out.println("icon URL: " + iconURL);
+            //System.out.println("icon URL: " + iconURL);
             BufferedImage dieCursorImage = ImageIO.read(iconURL);
             dieCursor = Toolkit.getDefaultToolkit().createCustomCursor(dieCursorImage, new Point(0,0), "Custom Die Cursor");
         } catch (IOException e) {
@@ -221,11 +221,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
     private void playSounds(byte[] audioData){
         try{
-            System.out.println("Audio hi");
             AudioInputStream audioInputStream = AudioSystem.getAudioInputStream(new ByteArrayInputStream(audioData));
             Clip clip = AudioSystem.getClip();
             clip.open(audioInputStream);
-            System.out.println("after clip");
             new Thread(() -> {
                 clip.start();
                 while (clip.getFramePosition() < clip.getFrameLength()){
@@ -258,25 +256,26 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             // We definitely remove each piece so that no artifacts are presented on screen and load new images for each result
             try{
                 new Thread(() -> {
-                    feedingImages = true;
                     for (BasicPiece piece: pieces){
                         Command remove = new RemovePiece(piece);
                         remove.execute();
                     }
-                    DrawDiceFolders();
+                    //DrawDiceFolders();
                     while (feedingImages){
                         Thread.yield();
                     }
                     throwDieButton.setText("Roll Dice");
                     throwDieButton.setEnabled(true);
                     currentMap.getView().repaint();
+                    System.out.println("Before toggleImages call inside toggleImages");
+                    toggleImagesVisibility(1); // REMOVE LATER
+                    System.out.println("AFTER toggleImages call inside toggleImages");
                     Thread.currentThread().interrupt();
                 }).start();
             } catch (Exception e){
-                System.out.println("Exception thrown");
+                System.out.println("Inside ToggleImagesVisibility. Exception while Resetting Roll Dice Button.");
                 e.printStackTrace();
             }
-
 
         } else {
             // BEGINS THE ANIMATION
@@ -323,6 +322,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 currentFrame = 0;
                 isImageVisible = true; // can only set this to true after last image is displayed, since when the button is pressed again, the behavior depends on that variable.
                 throwDieButton.setText("Hide Dice");
+
+                System.out.println("before toggleImages call inside displayImages");
+                toggleImagesVisibility(1); // REMOVE LATER
+                System.out.println("After toggleImages call inside displayImages");
                 return;
             }
 
@@ -350,6 +353,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         pieces = new BasicPiece[numberOfPieces];
         for (int i = 0; i < numberOfPieces; i++){
             final int index = i; // make index final, so it can be accessed from the inner class
+            System.out.println("Before trying to print preloadedImage");
+            System.out.println(preloadedImages.get(die).get(result).get(index));
+            System.out.println("After printing preloaded image");
             BasicPiece piece = new BasicPiece() {
                 private final Image image = preloadedImages.get(die).get(result).get(index);
                 @Override
@@ -361,6 +367,20 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             };
             pieces[i] = piece;
         }
+        //PRELOAD NEXT IMAGES
+        try{
+            new Thread(() -> {
+                feedingImages = true; // Set to false in DrawDiceFolders, after loading images has finished
+                DrawDiceFolders();
+               // while (feedingImages){
+               //     Thread.yield();
+                //}
+                Thread.currentThread().interrupt();
+            }).start();
+        } catch (Exception e){
+            System.out.println("Unable to preload images");
+            e.printStackTrace();
+        }
     }
 
 
@@ -369,21 +389,22 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         images = new ArrayList<>();
         int imageNumber = 0;
         Random random = new Random();
-
+        System.out.println("Path: " + path);
         while (true) {
             try {
                 URL imageURL = dataArchive.getURL(path + String.format("die%04d", imageNumber) + ".png");
-                //System.out.println("Loading image: " + imageURL);
+               //System.out.println("Loading image: " + imageURL);
                 preloadedImages.get(die).get(result).add(ImageIO.read(imageURL));
                 imageNumber++;
             } catch (IOException e) {
+                System.out.println("getImages Exception");
                 break;
             }
         }
-        feedingImages = false;
     }
 
     private void DrawDiceFolders(){
+        System.out.println("BEGIN NEW DRAW");
         // Clears the previously preloaded images
         for (int i = 1; i <= NUMBER_OF_SIDES; i++){
             preloadedImages.get("white").put(i, new ArrayList<Image>());
@@ -399,7 +420,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         if (random.nextDouble() < hesitantProb){ //Choose among hesitant die animations for red or white die
             /// REMEMBER TO ALTER BELOW TO NUMBER_OF_DICE
             hesitantDie = random.nextInt(1); // The die that will have the hesitant animation. 0 is white and 1 is red
-            int animNumber = random.nextInt(NUMBER_OF_HESITANT_DIE_ANIMATIONS) + 1; // there is no animation with index 0
+            int animNumber; // there is no animation with index 0
+            do {
+                animNumber = random.nextInt(NUMBER_OF_HESITANT_DIE_ANIMATIONS) + 1; // there is no animation with index 0
+            } while (animNumber == (int)lastAnimationUsed.get("white")[0] || animNumber == (int)lastAnimationUsed.get("red")[0]); // prevents immediate repetition of animation
 
             String folderPrefix = (hesitantDie == 0) ? HESITANT_WHITE_DIE_FOLDER_PATH : HESITANT_RED_DIE_FOLDER_PATH;
 
@@ -421,6 +445,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         } else {
 
         }
+        feedingImages = false; // Set to true in CreatePieces, after creation is finished and new feed from disk begins
+        System.out.println("FINISHED DRAW");
     }
 
     private int[] RollDices (int numberOfDice, int numberOfSides){
@@ -447,7 +473,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             if (k < numberOfDice - 1)
                 report.append(", ");
         }
-        System.out.println("hewe3");
+
         Command c = report.length() == 0 ? new NullCommand() : new Chatter.DisplayText(GameModule.getGameModule().getChatter(), report.toString());
         ((Command)c).execute();
         GameModule.getGameModule().sendAndLog(c);
@@ -617,7 +643,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 java.util.Timer timer;
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    System.out.println("NEW ROLL");
+                    System.out.println("Mouse pressed action inside DelayedActionButton class: NEW ROLL");
+                    System.out.println("isImageVisible: " + isImageVisible + " / isAnimationInProgress: " + isAnimationInProgress);
                     super.mousePressed(e);
                     mouseButtonPressed = true;
                     if (!isImageVisible && !isAnimationInProgress) { // doesn't execute when pressed to hide the dices (dice images are still visible)
