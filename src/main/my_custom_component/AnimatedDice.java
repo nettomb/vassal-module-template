@@ -410,40 +410,75 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             preloadedImages.get("white").put(i, new ArrayList<Image>());
             preloadedImages.get("red").put(i, new ArrayList<Image>());
         }
+        // RECOVER THE LAST ANIMATION VARIANT FOR EACH COLOR. O MEANS NONE.
+        int lastRedHesitantAnim = (boolean) lastAnimationUsed.get("red")[1] ? (int) lastAnimationUsed.get("red")[0] : 0;
+        int lastWhiteHesitantAnim = (boolean) lastAnimationUsed.get("white")[1] ? (int) lastAnimationUsed.get("white")[0] : 0;
+        int lastRedAnim = !(boolean) lastAnimationUsed.get("red")[1] ? (int) lastAnimationUsed.get("red")[0] : 0;
+        int lastWhiteAnim = !(boolean) lastAnimationUsed.get("white")[1] ? (int) lastAnimationUsed.get("white")[0] : 0;
+
         double hesitantProb = hesitantDieProbability * (double)(NUMBER_OF_HESITANT_DIE_ANIMATIONS/NUMBER_OF_DIE_ANIMATIONS); // We must update it, since hesitantDieProbability may be changed in preference
-        int hesitantDie = 1; // Red as default, so that if we have only one die, the code for normal animation will run for white;
+        int hesitantDie = 3; // 0 is white, 1 is red and 3 is none
         if((boolean) lastAnimationUsed.get("white")[1] || ((boolean) lastAnimationUsed.get("red")[1] && lastNumberOfDiceRolled == 2)) { // index 1 checks a boolean that is true if the last animation used for that die was a hesitant die animation. Only considers the red die case if it was included in the las toll.
             hesitantProb = hesitantProb * 0.3; // reduces the probability of a sequential hesitant die animation
         }
         Random random = new Random();
-        hesitantProb = 1; // REMOVE LATER!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        hesitantProb = 0; // REMOVE LATER!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         if (random.nextDouble() < hesitantProb){ //Choose among hesitant die animations for red or white die
             /// REMEMBER TO ALTER BELOW TO NUMBER_OF_DICE
             hesitantDie = random.nextInt(1); // The die that will have the hesitant animation. 0 is white and 1 is red
-            int animNumber; // there is no animation with index 0
+            int animNumber; // The animation variation to be used
             do {
                 animNumber = random.nextInt(NUMBER_OF_HESITANT_DIE_ANIMATIONS) + 1; // there is no animation with index 0
-            } while (animNumber == (int)lastAnimationUsed.get("white")[0] || animNumber == (int)lastAnimationUsed.get("red")[0]); // prevents immediate repetition of animation
+            } while ((lastRedHesitantAnim != 0 && animNumber == lastRedHesitantAnim) || (lastWhiteHesitantAnim != 0 && animNumber ==lastWhiteHesitantAnim)); // prevents immediate repetition of animation if any die used that variation in the last roll
 
             String folderPrefix = (hesitantDie == 0) ? HESITANT_WHITE_DIE_FOLDER_PATH : HESITANT_RED_DIE_FOLDER_PATH;
 
             for (int i = 1; i <= NUMBER_OF_SIDES; i++) {
-                ArrayList<Integer> animVariations = (hesitantDie == 0) ?
+                ArrayList<Integer> animVariation = (hesitantDie == 0) ?
                         whiteHesitantDieFolderBuilder.get(animNumber).get(i) :
                         redHesitantDieFolderBuilder.get(animNumber).get(i);
 
                 StringBuilder path = new StringBuilder();
                 path.append(folderPrefix).append((hesitantDie == 0) ? "W" : "R").append(animNumber).append("_")
-                        .append(animVariations.get(random.nextInt(animVariations.size()))).append("_").append(i).append("/");
+                        .append(animVariation.get(random.nextInt(animVariation.size()))).append("_").append(i).append("/");
                 //System.out.println(path);
 
                 getImages(path.toString(), (hesitantDie == 0) ? "white" : "red", i);
             }
-
-
-            lastAnimationUsed.put("white", new Object[]{animNumber, true});
+            if (hesitantDie == 0) {
+                lastAnimationUsed.put("white", new Object[]{animNumber, true});
+            } else {
+                lastAnimationUsed.put("red", new Object[]{animNumber, true});
+            }
         } else {
+            int redAnimNumber;
+            int whiteAnimNumber;
 
+            do {
+                redAnimNumber = random.nextInt(NUMBER_OF_DIE_ANIMATIONS) + 1; // there is no animation with index 0
+                whiteAnimNumber = random.nextInt(NUMBER_OF_DIE_ANIMATIONS) + 1;
+            } while ((lastRedAnim != 0 && (redAnimNumber == lastRedAnim || whiteAnimNumber == lastRedAnim)) || (lastWhiteAnim != 0 && (whiteAnimNumber == lastWhiteAnim || whiteAnimNumber == lastRedAnim))); // prevents immediate repetition of animation
+
+            if (hesitantDie == 3 || hesitantDie != 1) { // RED DIE PRELOAD
+                for (int i = 1; i <= NUMBER_OF_SIDES; i++) {
+                    StringBuilder path = new StringBuilder();
+                    path.append(RED_DIE_FOLDER_PATH).append("R").append(redAnimNumber).append("_")
+                            .append(i).append("/");
+                    //System.out.println(path);
+                    getImages(path.toString(), "red", i);
+                }
+                lastAnimationUsed.put("red", new Object[]{redAnimNumber, false});
+            }
+            if (hesitantDie == 3 || hesitantDie != 0) { // WHITE DIE PRELOAD
+                for (int i = 1; i <= NUMBER_OF_SIDES; i++) {
+                    StringBuilder path = new StringBuilder();
+                    path.append(WHITE_DIE_FOLDER_PATH).append("W").append(redAnimNumber).append("_")
+                            .append(i).append("/");
+                    //System.out.println(path);
+                    getImages(path.toString(), "white", i);
+                }
+                lastAnimationUsed.put("white", new Object[]{whiteAnimNumber, false});
+            }
         }
         feedingImages = false; // Set to true in CreatePieces, after creation is finished and new feed from disk begins
         System.out.println("FINISHED DRAW");
