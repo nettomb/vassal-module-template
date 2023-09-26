@@ -78,7 +78,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private boolean shouldStopFlag;
     private Cursor dieCursor;
     private boolean actionInProgress = false;
-    private BasicPiece[] pieces; // pieces are added to this array to be displayed in order
+    private HashMap<String, BasicPiece[]> pieces; // pieces are added to this array to be displayed in order
     private final Map currentMap;
 
     public AnimatedDice(){
@@ -139,10 +139,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             throwDieButton = new DelayedActionButton("Roll Dice", new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    toggleImagesVisibility(1);
+                    executeRoll(2);
                 }
             });
-            throwDieButton.setToolTipText("Displays Image on map");
+
 
             // Add the button to the toolbar
             gameModule.getToolBar().add(throwDieButton);
@@ -247,18 +247,21 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     }
 
 
-    private void toggleImagesVisibility(int numberOfDice){
+    private void executeRoll(int numberOfDice){
         // ENDS THE ANIMATION
         if (isImageVisible){
             throwDieButton.setEnabled(false);
-            hideImage(pieces[pieces.length - 1]); // Hide last frame, which remained visible
+            for (String key: pieces.keySet())
+                hideImage(pieces.get(key)[pieces.get(key).length - 1]); // Hide last frame, which remained visible
             isImageVisible = false;
             // We definitely remove each piece so that no artifacts are presented on screen and load new images for each result
             try{
                 new Thread(() -> {
-                    for (BasicPiece piece: pieces){
-                        Command remove = new RemovePiece(piece);
-                        remove.execute();
+                    for (String key: pieces.keySet()) {
+                        for (BasicPiece piece: pieces.get(key)) {
+                            Command remove = new RemovePiece(piece);
+                            remove.execute();
+                        }
                     }
                     //DrawDiceFolders();
                     while (feedingImages){
@@ -268,7 +271,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     throwDieButton.setEnabled(true);
                     currentMap.getView().repaint();
                     System.out.println("Before toggleImages call inside toggleImages");
-                    toggleImagesVisibility(1); // REMOVE LATER
+                    executeRoll(2); // REMOVE LATER
                     System.out.println("AFTER toggleImages call inside toggleImages");
                     Thread.currentThread().interrupt();
                 }).start();
@@ -284,19 +287,45 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             imageDelay = (1000/frameRate); // transform frame rate into milliseconds delay
 
             int[] results = RollDices (numberOfDice, NUMBER_OF_SIDES);
-            createPieces("white", results[0]);
+            pieces = new HashMap<>();
+            if (numberOfDice == 1) {
+                createPieces("white", results[0]);
+            } else if (numberOfDice == 2){
+                createPieces("red", results[0]);
+                createPieces("white", results[1]);
+            }
+
+            //PRELOAD NEXT IMAGES - replaced from end of getImages (VERIFY!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
+            try{
+                new Thread(() -> {
+                    feedingImages = true; // Set to false in DrawDiceFolders, after loading images has finished
+                    DrawDiceFolders();
+                    Thread.currentThread().interrupt();
+                }).start();
+            } catch (Exception e){
+                System.out.println("Unable to preload images");
+                e.printStackTrace();
+            }
+
             scheduler = Executors.newSingleThreadScheduledExecutor();
-            playSounds(dieAudioData);
+            if (numberOfDice == 1)
+                playSounds(dieAudioData);
+            else
+                playSounds(diceAudioData);
 
             Rectangle rectangle = currentMap.getView().getVisibleRect();
-            // If dicePosition (set up in preferences), which is the offset of the animation to the left,,
+            // If dicePosition (set up in preferences), which is the offset of the animation to the left,
             // is larger than the width of the window minus the width of the images, we adjust it to the maximum place to which the animation may be offset without cropping the image.
-            int adjustedDicePositionSettings = (dicePositionSettings > (rectangle.width - IMAGE_SIZE))? Math.max (rectangle.width - IMAGE_SIZE, 0): dicePositionSettings;
+            int adjustedDicePositionSettings = (dicePositionSettings > (rectangle.width - (IMAGE_SIZE * numberOfDice))? Math.max (rectangle.width - (IMAGE_SIZE * numberOfDice), 0): dicePositionSettings);
             int min_x = rectangle.x; // leftmost point of the current visible rectangle
             int x = (min_x + adjustedDicePositionSettings); // we add the adjusted offset to the leftmost point of the window.
             int y = rectangle.y;
 
-            Runnable task = () -> displayImage(x,y);
+            int whiteDieAnimationLength = pieces.get("white").length;
+            int redDieAnimationLength = (pieces.containsKey("red") ? pieces.get("red").length : 0);
+
+            int diePosition = new Random().nextInt(numberOfDice); // always 0 if only one die
+            Runnable task = () -> displayImage(x,y,whiteDieAnimationLength,redDieAnimationLength, diePosition);
             scheduler.scheduleAtFixedRate(task, 0, imageDelay, TimeUnit.MILLISECONDS);
         }
     }
@@ -315,26 +344,44 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
-    private void displayImage(int x, int y){
+    private void displayImage(int x, int y, int whiteDieAnimationLength, int redDieAnimationLength, int diePosition){
+
         if (currentMap != null){
-            if (currentFrame == pieces.length) {
+            if (currentFrame == (whiteDieAnimationLength >= redDieAnimationLength ? whiteDieAnimationLength : redDieAnimationLength)) {
                 stopImageDisplay();
                 currentFrame = 0;
                 isImageVisible = true; // can only set this to true after last image is displayed, since when the button is pressed again, the behavior depends on that variable.
                 throwDieButton.setText("Hide Dice");
 
-                System.out.println("before toggleImages call inside displayImages");
-                toggleImagesVisibility(1); // REMOVE LATER
-                System.out.println("After toggleImages call inside displayImages");
+                executeRoll(2); // REMOVE LATER
                 return;
             }
 
             int xCoordinate = x;
             int yCoordinate = y;
-
-            currentMap.placeAt(pieces[currentFrame], new Point(xCoordinate,yCoordinate));
-            if (currentFrame > 1){
-                currentMap.removePiece(pieces[currentFrame - 1]);
+            if (redDieAnimationLength == 0) {
+                currentMap.placeAt(pieces.get("white")[currentFrame], new Point(xCoordinate, yCoordinate));
+                if (currentFrame > 1) {
+                    currentMap.removePiece(pieces.get("white")[currentFrame - 1]);
+                }
+            } else if (redDieAnimationLength != 0){
+                System.out.println("displayImage lets go");
+                if (currentFrame <= (diePosition == 0 ? whiteDieAnimationLength : redDieAnimationLength)) {
+                    System.out.println("displayImage before first display");
+                    currentMap.placeAt(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame], new Point(xCoordinate, yCoordinate));
+                    System.out.println("displayImage after first display");
+                    if (currentFrame > 1) {
+                        currentMap.removePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame - 1]);
+                    }
+                }
+                if (currentFrame <= (diePosition == 0 ? redDieAnimationLength : whiteDieAnimationLength)){
+                    System.out.println("displayImage before second display");
+                    currentMap.placeAt(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame], new Point(xCoordinate + IMAGE_SIZE, yCoordinate));
+                    System.out.println("displayImage before second display");
+                    if (currentFrame > 1) {
+                        currentMap.removePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame - 1]);
+                    }
+                }
             }
 
             currentFrame = (currentFrame + 1);
@@ -350,12 +397,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
     private void createPieces(String die, int result){
         int numberOfPieces = preloadedImages.get(die).get(result).size();
-        pieces = new BasicPiece[numberOfPieces];
+        pieces.put(die, new BasicPiece[numberOfPieces]);
         for (int i = 0; i < numberOfPieces; i++){
             final int index = i; // make index final, so it can be accessed from the inner class
-            System.out.println("Before trying to print preloadedImage");
-            System.out.println(preloadedImages.get(die).get(result).get(index));
-            System.out.println("After printing preloaded image");
+            //System.out.println(preloadedImages.get(die).get(result).get(index));
             BasicPiece piece = new BasicPiece() {
                 private final Image image = preloadedImages.get(die).get(result).get(index);
                 @Override
@@ -365,21 +410,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     g.drawImage(image, x, y, obs);
                 }
             };
-            pieces[i] = piece;
-        }
-        //PRELOAD NEXT IMAGES
-        try{
-            new Thread(() -> {
-                feedingImages = true; // Set to false in DrawDiceFolders, after loading images has finished
-                DrawDiceFolders();
-               // while (feedingImages){
-               //     Thread.yield();
-                //}
-                Thread.currentThread().interrupt();
-            }).start();
-        } catch (Exception e){
-            System.out.println("Unable to preload images");
-            e.printStackTrace();
+            pieces.get(die)[i] = piece;
         }
     }
 
