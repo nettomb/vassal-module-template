@@ -270,13 +270,11 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     throwDieButton.setText("Roll Dice");
                     throwDieButton.setEnabled(true);
                     currentMap.getView().repaint();
-                    System.out.println("Before toggleImages call inside toggleImages");
                     executeRoll(2); // REMOVE LATER
-                    System.out.println("AFTER toggleImages call inside toggleImages");
                     Thread.currentThread().interrupt();
                 }).start();
             } catch (Exception e){
-                System.out.println("Inside ToggleImagesVisibility. Exception while Resetting Roll Dice Button.");
+                System.out.println("Inside executeRoll. Exception while Resetting Roll Dice Button.");
                 e.printStackTrace();
             }
 
@@ -365,19 +363,15 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     currentMap.removePiece(pieces.get("white")[currentFrame - 1]);
                 }
             } else if (redDieAnimationLength != 0){
-                System.out.println("displayImage lets go");
-                if (currentFrame <= (diePosition == 0 ? whiteDieAnimationLength : redDieAnimationLength)) {
-                    System.out.println("displayImage before first display");
+                if (currentFrame < (diePosition == 0 ? whiteDieAnimationLength : redDieAnimationLength)) {
                     currentMap.placeAt(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame], new Point(xCoordinate, yCoordinate));
-                    System.out.println("displayImage after first display");
                     if (currentFrame > 1) {
                         currentMap.removePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame - 1]);
                     }
                 }
-                if (currentFrame <= (diePosition == 0 ? redDieAnimationLength : whiteDieAnimationLength)){
-                    System.out.println("displayImage before second display");
+
+                if (currentFrame < (diePosition == 0 ? redDieAnimationLength : whiteDieAnimationLength)){
                     currentMap.placeAt(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame], new Point(xCoordinate + IMAGE_SIZE, yCoordinate));
-                    System.out.println("displayImage before second display");
                     if (currentFrame > 1) {
                         currentMap.removePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame - 1]);
                     }
@@ -400,7 +394,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         pieces.put(die, new BasicPiece[numberOfPieces]);
         for (int i = 0; i < numberOfPieces; i++){
             final int index = i; // make index final, so it can be accessed from the inner class
-            //System.out.println(preloadedImages.get(die).get(result).get(index));
             BasicPiece piece = new BasicPiece() {
                 private final Image image = preloadedImages.get(die).get(result).get(index);
                 @Override
@@ -424,7 +417,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         while (true) {
             try {
                 URL imageURL = dataArchive.getURL(path + String.format("die%04d", imageNumber) + ".png");
-               //System.out.println("Loading image: " + imageURL);
                 preloadedImages.get(die).get(result).add(ImageIO.read(imageURL));
                 imageNumber++;
             } catch (IOException e) {
@@ -491,7 +483,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         do {
             redAnimNumber = random.nextInt(NUMBER_OF_DIE_ANIMATIONS) + 1; // there is no animation with index 0
             whiteAnimNumber = random.nextInt(NUMBER_OF_DIE_ANIMATIONS) + 1;
-        } while ((lastRedAnim != 0 && (redAnimNumber == lastRedAnim || whiteAnimNumber == lastRedAnim)) || (lastWhiteAnim != 0 && (whiteAnimNumber == lastWhiteAnim || whiteAnimNumber == lastRedAnim))); // prevents immediate repetition of animation
+        } while ((lastRedAnim != 0 && (redAnimNumber == lastRedAnim || whiteAnimNumber == lastRedAnim)) || (lastWhiteAnim != 0 && (whiteAnimNumber == lastWhiteAnim || whiteAnimNumber == lastRedAnim)) || (redAnimNumber == whiteAnimNumber)); // prevents immediate repetition of animation and equal animations
 
         if (hesitantDie != 1) { // RED DIE PRELOAD
             for (int i = 1; i <= NUMBER_OF_SIDES; i++) {
@@ -506,7 +498,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         if (hesitantDie != 0) { // WHITE DIE PRELOAD
             for (int i = 1; i <= NUMBER_OF_SIDES; i++) {
                 StringBuilder path = new StringBuilder();
-                path.append(WHITE_DIE_FOLDER_PATH).append("W").append(redAnimNumber).append("_")
+                path.append(WHITE_DIE_FOLDER_PATH).append("W").append(whiteAnimNumber).append("_")
                         .append(i).append("/");
                 //System.out.println(path);
                 getImages(path.toString(), "white", i);
@@ -577,14 +569,11 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             InputStream inputStream = dataArchive.getInputStream(path);
             BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
             String line;
-            System.out.println("BufferedReader created: " + reader);
             while ((line = reader.readLine()) != null){
-                System.out.println("Line content: " + line);
                 String[] parts = line.split("/");
                 int animationIndex = Integer.parseInt(parts[0]);
                 int result = Integer.parseInt(parts[2]);
                 int rejectedResult = Integer.parseInt(parts[1]);
-                System.out.println("Animation: " + animationIndex + "/ result: " + result + "/ rejected result: " + rejectedResult);
                 if (!folderNameBuilder.containsKey(animationIndex)) {
                     folderNameBuilder.put(animationIndex, new HashMap<>()); // is a hesitant die animation
                     for (int i = 1; i <= 6; i++) {
@@ -605,61 +594,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             }
         }
         return folderNameBuilder;
-        /*JarURLConnection j = null;
-        try {
-            URL imagesFolder = dataArchive.getURL(HESITANT_RED_DIE_FOLDER_PATH);
-            System.out.println("Image URL: " + imagesFolder);
-            j = (JarURLConnection)imagesFolder.openConnection();
-            Enumeration<JarEntry> e = j.getJarFile().entries();
-            Pattern hesitantDieFolderPattern = Pattern.compile("^[A-Za-z]\\d+_\\d_\\d$");
-            hesitantDiceFolderIndexes = new HashMap<>();
-
-            while (e.hasMoreElements()){
-                JarEntry entry = e.nextElement();
-
-                if (entry.getName().startsWith(HESITANT_RED_DIE_FOLDER_PATH) && !entry.getName().endsWith(HESITANT_RED_DIE_FOLDER_PATH) && entry.isDirectory()){
-                    System.out.println("Enumerate images in folder: " + entry.getName());
-                    String folderName = entry.getName();
-                    folderName = folderName.substring(0, folderName.length() - 1);
-                    System.out.println("folderName after slash removal: " + folderName);
-                    folderName = folderName.substring(HESITANT_RED_DIE_FOLDER_PATH.length()); // concatenation is causing memory problems
-                    System.out.println("folder name: " + folderName);
-                    Matcher matcher1 = hesitantDieFolderPattern.matcher(folderName);
-                    if (matcher1.matches()){
-                        String[]parts = folderName.split("_");
-                        int animationIndex = Integer.parseInt(parts[0].substring(1));
-                        int result = Integer.parseInt(parts[2]);
-                        hesitantDiceFolderIndexes
-                                .computeIfAbsent(animationIndex, k -> new HashMap<>())
-                                .computeIfAbsent(result, k -> new ArrayList<>())
-                                .add("_" + parts[1]);
-                    }
-                }
-            }
-
-        }catch (IOException e){
-            e.printStackTrace();
-        }finally{
-            if (j != null){
-                try{
-                    j.getJarFile().close();
-                } catch (IOException e){
-                    e.printStackTrace();
-                }
-            }
-        }
-
-        System.out.println("Hashmap length: " + hesitantDiceFolderIndexes.size());
-        for (int i = 0; i < hesitantDiceFolderIndexes.size(); i++) {
-            for (int k = 1; k <= 6; k++) {
-                HashMap<Integer, ArrayList<String>> patterns = hesitantDiceFolderIndexes.get(i);
-                List<String> p = patterns.get(k);
-                String s = p.get(0);
-                System.out.println("Number of animation: " + i +
-                        " brings the following patterns for /'/" + s +
-                        "/'/ result : " + k);
-            }
-        }*/
     }
 
     @Override
