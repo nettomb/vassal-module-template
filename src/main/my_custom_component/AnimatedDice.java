@@ -405,55 +405,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
 
     private void executeRoll(int numberOfDice){
-        // ENDS THE ANIMATION
-        if (isImageVisible){
-            //System.out.println("N11");
-            oneDieButton.setEnabled(false);
-            twoDiceButton.setEnabled(false);
-            for (String key: pieces.keySet())
-                hideImage(pieces.get(key)[pieces.get(key).length - 1]); // Hide last frame, which remained visible
-            isImageVisible = false;
-
-
-            //System.out.println("N12");
-            // We definitely remove each piece so that no artifacts are presented on screen and load new images for each result
-            try{
-                new Thread(() -> {
-                    System.out.println("STARTING buttons reset thread number " + buttonResetThreadCouter);
-                    //System.out.println("N13");
-                    for (String key : pieces.keySet()) {
-                        for (BasicPiece piece : pieces.get(key)) {
-                            if (piece != null) {
-                                Command remove = new RemovePiece(piece);
-                                try {
-                                    remove.execute();
-                                } catch (NullPointerException e){
-                                    System.out.println("Unable to remove the piece");
-                                }
-                            }
-                        }
-                    }
-                    //System.out.println("N14");
-                    while (feedingImages){
-                        Thread.yield();
-                    }
-                    //System.out.println("N15");
-                    oneDieButton.setText("Roll Die");
-                    oneDieButton.setEnabled(true);
-                    twoDiceButton.setText("Roll Dice");
-                    twoDiceButton.setEnabled(true);
-                    currentMap.getView().repaint();
-                    System.out.println("Before INTERRUPTION of buttons reset thread number " + buttonResetThreadCouter);
-                    buttonResetThreadCouter ++;
-                    Thread.currentThread().interrupt();
-                }).start();
-
-            } catch (Exception e){
-                System.out.println("Inside executeRoll. Exception while Resetting Roll Dice Button.");
-                e.printStackTrace();
-            }
-
-        } else {
             // BEGINS THE ANIMATION
             //System.out.println("N1 ------------------------------------------------------------------------------------------------------------------------------");
             isAnimationInProgress = true;
@@ -511,24 +462,78 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             System.out.println("STARTING display image thread number " + animationRunTaskCounter);
             Runnable task = () -> displayImage(x,y,whiteDieAnimationLength,redDieAnimationLength, diePosition);
             scheduler.scheduleAtFixedRate(task, 0, imageDelay, TimeUnit.MILLISECONDS);
-        }
     }
 
     public void stopImageDisplay(){
+        // ENDS ANIMATION
         scheduler.shutdown();
         try{
             if (!scheduler.awaitTermination(1, TimeUnit.SECONDS)){
                 scheduler.shutdownNow();
                 System.out.println("After INTERRUPTION of display image thread number " + animationRunTaskCounter);
                 animationRunTaskCounter ++;
-                oneDieButton.setEnabled(true);
-                twoDiceButton.setEnabled(true);
                 isAnimationInProgress = false;
             }
         } catch (InterruptedException ex){
             System.out.println("Unable to shut down Animation scheduler");
             scheduler.shutdownNow();
             Thread.currentThread().interrupt();
+        }
+        // CLEANS PIECES AND RESET BUTTONS
+        try { // Remove last piece still visible if not already done after the onScreenDuration time value.
+            long startTime = System.currentTimeMillis();
+            new Thread(()->{
+                while (System.currentTimeMillis() - startTime < (onScreenDuration * 1000)) {
+                    System.out.println("Time: "  + (System.currentTimeMillis() - startTime));
+                    Thread.yield();
+                }
+                if (isImageVisible) { // Checks to see if the last frame is still visible. It can be cleaned by a click for a new Roll.
+                    System.out.println("n2");
+                    for (String key : pieces.keySet()) {
+                        hideImage(pieces.get(key)[pieces.get(key).length - 1]); // Hide last frame, which remained visible
+                        if (pieces.get(key)[pieces.get(key).length - 1] != null) {
+                            Command remove = new RemovePiece(pieces.get(key)[pieces.get(key).length - 1]);
+                            remove.execute();
+                        }
+                    }
+                    isImageVisible = false;
+                    Thread.currentThread().interrupt();
+                } else {
+                    Thread.currentThread().interrupt();
+                }
+            }).start();
+        } catch (Exception e){
+            e.printStackTrace();
+        }
+
+        // We definitely remove each piece so that no artifacts are presented on screen and load new images for each result
+        try {
+            new Thread(() -> {
+                System.out.println("STARTING buttons reset thread number " + buttonResetThreadCouter);
+                BasicPiece lastRed = pieces.get("red")[pieces.get("red").length - 1];
+                BasicPiece lastWhite = pieces.get("white")[pieces.get("white").length - 1];
+                for (String key : pieces.keySet()) {
+                    for (BasicPiece piece : pieces.get(key)) {
+                        if (piece != null && !piece.equals(key == "red" ? lastRed : lastWhite)) {
+                            Command remove = new RemovePiece(piece);
+                            remove.execute();
+                        }
+                    }
+                }
+                while (feedingImages) {
+                    Thread.yield();
+                }
+                oneDieButton.setEnabled(true);
+                twoDiceButton.setEnabled(true);
+                currentMap.getView().repaint();
+                System.out.println("Before INTERRUPTION of buttons reset thread number " + buttonResetThreadCouter);
+                buttonResetThreadCouter++;
+                Thread.currentThread().interrupt();
+            }).start();
+
+        } catch (Exception e) {
+            System.out.println("Inside executeRoll. Exception while Resetting Roll Dice Button.");
+            e.printStackTrace();
         }
     }
 
