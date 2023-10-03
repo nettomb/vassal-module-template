@@ -49,6 +49,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final String ONE_DIE_BUTTON_SETTINGS = "oneDieButtonSettings";
     private final String TWO_DICE_BUTTON_SETTINGS = "twoDiceButtonSettings";
     private final String BUTTONS_INDEX_SETTINGS = "buttonsIndexSettings";
+    private final String DICE_ON_SCREEN_DURATION_SETTINGS = "diceOnScreenDurationSettings";
     private int dicePositionSettings;
     private int MAX_HORIZONTAL_OFFSET = 0;
     private int IMAGE_SIZE = 250;
@@ -67,6 +68,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private int frameRate;
     private final int MAX_FRAME_RATE = 60;
     private final int MIN_FRAME_RATE = 35;
+    private int onScreenDuration;
+    private final int MAX_ON_SCREEN_DURATION = 1000;
+    private final int MIN_ON_SCREEN_DURATION = 0;
     private ScheduledExecutorService scheduler; // Controls the frame rate of the displayed images
     private List<Image> images; // to be fed with the dice images that will be drawn on the pieces
     private HashMap<String, HashMap<Integer, ArrayList<Image>>> preloadedImages; // set of preloaded images for each die and each result on the form: "Red": 6: List of images
@@ -107,6 +111,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         currentMap = GameModule.getGameModule().getComponentsOf(Map.class).get(0);
         dicePositionSettings = 0;
         frameRate = 45;
+        onScreenDuration = 5;
         oneDieButtonVisible = true;
         twoDiceButtonVisible = true;
         currentFrame = 0;
@@ -249,6 +254,25 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             oneDieButton.setVisible((boolean) gameModule.getPrefs().getValue(ONE_DIE_BUTTON_SETTINGS));
             twoDiceButton.setVisible((boolean) gameModule.getPrefs().getValue(TWO_DICE_BUTTON_SETTINGS));
 
+            // ...DICE ON SCREEN DURATION
+            final IntConfigurer onScreenDurationSettings = new IntConfigurer(DICE_ON_SCREEN_DURATION_SETTINGS, "On Screen Duration (MAX: " + MAX_ON_SCREEN_DURATION + " / MIN: " + MIN_ON_SCREEN_DURATION + ")", onScreenDuration);
+            gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, onScreenDurationSettings);
+            onScreenDuration = (int) gameModule.getPrefs().getValue(DICE_ON_SCREEN_DURATION_SETTINGS);
+
+            onScreenDurationSettings.addPropertyChangeListener(new PropertyChangeListener() {
+                @Override
+                public void propertyChange(PropertyChangeEvent evt){
+                    if ((int)gameModule.getPrefs().getValue(DICE_ON_SCREEN_DURATION_SETTINGS) > MAX_ON_SCREEN_DURATION) {
+                        gameModule.getPrefs().setValue(DICE_ON_SCREEN_DURATION_SETTINGS, MAX_ON_SCREEN_DURATION);
+                        onScreenDuration = MAX_ON_SCREEN_DURATION;
+                    } else if ((int)gameModule.getPrefs().getValue(DICE_ON_SCREEN_DURATION_SETTINGS) < MIN_ON_SCREEN_DURATION){
+                        gameModule.getPrefs().setValue(DICE_ON_SCREEN_DURATION_SETTINGS, MIN_ON_SCREEN_DURATION);
+                        onScreenDuration = MIN_ON_SCREEN_DURATION;
+                    } else {
+                        onScreenDuration = (int)gameModule.getPrefs().getValue((DICE_ON_SCREEN_DURATION_SETTINGS));
+                    }
+                };
+            });
 
             // ...FRAME RATE
             final IntConfigurer frameRateSettings = new IntConfigurer(FRAME_RATE_SETTINGS, "Frame Rate (MAX: " + MAX_FRAME_RATE + " / MIN: " + MIN_FRAME_RATE + ")", frameRate);
@@ -914,7 +938,16 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                             buttonTimerCounter++;
                             timer.cancel();
                         }
-                        delayedActionListener.actionPerformed(new ActionEvent(this, ActionEvent.ACTION_PERFORMED, ""));
+                        if (e.getButton() == MouseEvent.BUTTON1) { // if left button, display animation
+                            delayedActionListener.actionPerformed(new ActionEvent(this, ActionEvent.ACTION_PERFORMED, ""));
+                        } else {
+                            if (e.getSource() == oneDieButton){
+                                RollDices(1, 6);
+                            }
+                            if (e.getSource() == twoDiceButton){
+                                RollDices(2, 6);
+                            }
+                        }
                     }
                     mouseButtonPressed = false;
                 }
