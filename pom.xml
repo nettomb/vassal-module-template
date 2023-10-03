@@ -29,6 +29,48 @@
   </repositories>
 
   <build>
+    <sourceDirectory>src</sourceDirectory>
+    <resources>
+      <!-- replace variables (e.g., ${project.version} in these files -->
+      <resource>
+        <directory>src/main/images</directory>
+        <filtering>true</filtering>
+        <includes>
+          <include>buildFile.xml</include>
+          <include>moduledata</include>
+        </includes>
+      </resource>
+
+      <!-- don't replace variables in these files -->
+      <resource>
+        <directory>src/main/images</directory>
+        <filtering>false</filtering>
+        <excludes>
+          <exclude>buildFile.xml</exclude>
+          <exclude>moduledata</exclude>
+        </excludes>
+      </resource>
+
+      <resource>
+        <directory>src/main/sounds</directory>
+        <filtering>true</filtering>
+        <includes>
+          <include>buildFile.xml</include>
+          <include>moduledata</include>
+        </includes>
+      </resource>
+
+      <!-- don't replace variables in these files -->
+      <resource>
+        <directory>src/main/sounds</directory>
+        <filtering>false</filtering>
+        <excludes>
+          <exclude>buildFile.xml</exclude>
+          <exclude>moduledata</exclude>
+        </excludes>
+      </resource>
+    </resources>
+
     <plugins>
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>

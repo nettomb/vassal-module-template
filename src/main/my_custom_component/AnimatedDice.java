@@ -48,6 +48,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final String DICE_POSITION_SETTINGS = "dicePositionSettings";
     private final String ONE_DIE_BUTTON_SETTINGS = "oneDieButtonSettings";
     private final String TWO_DICE_BUTTON_SETTINGS = "twoDiceButtonSettings";
+    private final String BUTTONS_INDEX_SETTINGS = "buttonsIndexSettings";
     private int dicePositionSettings;
     private int MAX_HORIZONTAL_OFFSET = 0;
     private int IMAGE_SIZE = 250;
@@ -79,6 +80,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final int NUMBER_OF_DIE_ANIMATIONS = 27; // ALTER THAT IF MORE ANIMATIONS ARE ADEED
     private final int NUMBER_OF_HESITANT_DIE_ANIMATIONS = 5;
     private boolean feedingImages; // Checks if the thread for loading images is still running
+    private final Object feedingImagesLock = new Object(); // Lock to be used by threads to synchronize the feeding images process
     private byte[] dieAudioData;
     private byte[] diceAudioData;
     private byte[] shakingDiceAudioData;
@@ -87,6 +89,15 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private boolean actionInProgress = false;
     private HashMap<String, BasicPiece[]> pieces; // pieces are added to this array to be displayed in order
     private final Map currentMap;
+
+    // TEST CODE START
+    private boolean testRunning = false;
+    private int playSoundsThreadCounter = 0;
+    private int animationRunTaskCounter = 0;
+    private int buttonTimerCounter = 0;
+    private int buttonResetThreadCouter = 0;
+    private int drawDiceFoderThreadCounter = 0;
+    // TEST CODE END
 
     public AnimatedDice(){
         super(GameModule.getGameModule().getDataArchive());
@@ -144,7 +155,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     public void addTo(Buildable parent) {
         if (parent instanceof GameModule) {
             gameModule = (GameModule) parent;
-            // Create your button instance
+            // CREATE BUTTONS
             oneDieButton = new DelayedActionButton("Roll Die", new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
@@ -158,13 +169,59 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 }
             });
 
-
-            // INITIALIZE BUTTONS IN TOOLBAR WITH PROPER INDEX
-            gameModule.getToolBar().add(oneDieButton);
-            diceToolbarIndex = gameModule.getToolBar().getComponentIndex(oneDieButton);
-            gameModule.getToolBar().add(twoDiceButton);
+            JButton testButton = new JButton("Test Button");
+            ActionListener listener = new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    if (testRunning){
+                        testRunning = false;
+                    } else {
+                        testRunning = true;
+                        testRoutine();
+                    }
+                }
+            };
+            testButton.addActionListener(listener);
+            gameModule.getToolBar().add(testButton);
 
             // ADD SETTINGS TO PREFERENCE WINDOW
+            JToolBar toolBar = gameModule.getToolBar();
+
+            // ...BUTTONS INDEX
+            final IntConfigurer buttonsIndexSettings = new IntConfigurer(BUTTONS_INDEX_SETTINGS, "Buttons Position: ", diceToolbarIndex);
+            gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, buttonsIndexSettings);
+            diceToolbarIndex = (int) gameModule.getPrefs().getValue(BUTTONS_INDEX_SETTINGS);
+
+            buttonsIndexSettings.addPropertyChangeListener(new PropertyChangeListener() {
+                @Override
+                public void propertyChange(PropertyChangeEvent evt){
+                    int typedValue = (int) gameModule.getPrefs().getValue(BUTTONS_INDEX_SETTINGS);
+                    int numberOfSlots = toolBar.getComponentCount() - 1;
+                    if (typedValue < 0){
+                        gameModule.getPrefs().setValue(BUTTONS_INDEX_SETTINGS, 1);
+                        diceToolbarIndex = 1;
+                    }
+                    if (typedValue > numberOfSlots){
+                        gameModule.getPrefs().setValue(BUTTONS_INDEX_SETTINGS, numberOfSlots);
+                        diceToolbarIndex = numberOfSlots;
+                    } else {
+                        diceToolbarIndex = typedValue;
+                    }
+                    toolBar.add(oneDieButton, diceToolbarIndex);
+                    toolBar.add(twoDiceButton, diceToolbarIndex);
+                    oneDieButton.setVisible((boolean) gameModule.getPrefs().getValue(ONE_DIE_BUTTON_SETTINGS));
+                    twoDiceButton.setVisible((boolean) gameModule.getPrefs().getValue(TWO_DICE_BUTTON_SETTINGS));
+
+                    //gameModule.getToolBar().add(oneDieButton, diceToolbarIndex - 1);
+                    toolBar.updateUI();
+                };
+            });
+
+            // INITIALIZE BUTTONS IN TOOLBAR WITH PROPER INDEX
+            if (diceToolbarIndex > toolBar.getComponentCount()) // ----------->>>   SEE IF IT IS POSSIBLE TO ADD BUTTONS AFTER ALL OTHERS ARE ADDED, OR EXTENSIONS INITIALIZED LATER WILL DISLODGE OUR BUTTONS IF SET WITH LAGE INDEX NUMBER
+                diceToolbarIndex = toolBar.getComponentCount();
+            toolBar.add(oneDieButton, diceToolbarIndex);
+            toolBar.add(twoDiceButton, diceToolbarIndex);
 
             // ...HIDE BUTTONS
             final BooleanConfigurer oneDieButtonSettings = new BooleanConfigurer(ONE_DIE_BUTTON_SETTINGS, "ONE DIE BUTTON ", oneDieButtonVisible);
@@ -173,40 +230,25 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, twoDiceButtonSettings);
             oneDieButtonVisible = (boolean) gameModule.getPrefs().getValue(ONE_DIE_BUTTON_SETTINGS);
             twoDiceButtonVisible = (boolean) gameModule.getPrefs().getValue(TWO_DICE_BUTTON_SETTINGS);
+            gameModule.getPrefs().setValue(BUTTONS_INDEX_SETTINGS, diceToolbarIndex);
             oneDieButtonSettings.addPropertyChangeListener(new PropertyChangeListener() {
                 @Override
                 public void propertyChange(PropertyChangeEvent evt){
-                    if ((boolean) gameModule.getPrefs().getValue(ONE_DIE_BUTTON_SETTINGS) == true){
-                        gameModule.getToolBar().add(oneDieButton, diceToolbarIndex);
-                    } else {
-                        if (gameModule.getToolBar().getComponentIndex(oneDieButton) != -1) {
-                            diceToolbarIndex = gameModule.getToolBar().getComponentIndex(oneDieButton);
-                            gameModule.getToolBar().remove(diceToolbarIndex);
-                            gameModule.getToolBar().updateUI();
-                        }
-                    }
+                    oneDieButton.setVisible((boolean) gameModule.getPrefs().getValue(ONE_DIE_BUTTON_SETTINGS));
                 };
             });
-            // updates button state after reading preferences
-            if ((boolean) gameModule.getPrefs().getValue(ONE_DIE_BUTTON_SETTINGS) == false)
-                gameModule.getToolBar().remove(oneDieButton);
 
             twoDiceButtonSettings.addPropertyChangeListener(new PropertyChangeListener() {
                 @Override
                 public void propertyChange(PropertyChangeEvent evt){
-                    if ((boolean) gameModule.getPrefs().getValue(TWO_DICE_BUTTON_SETTINGS) == true){
-                        gameModule.getToolBar().add(twoDiceButton, diceToolbarIndex + 1);
-                    } else {
-                        if (gameModule.getToolBar().getComponentIndex(twoDiceButton) != -1) {
-                            gameModule.getToolBar().remove(gameModule.getToolBar().getComponentIndex(twoDiceButton));
-                            gameModule.getToolBar().updateUI();
-                        }
-                    }
+                    twoDiceButton.setVisible((boolean) gameModule.getPrefs().getValue(TWO_DICE_BUTTON_SETTINGS));
                 };
             });
-            // updates button state after reading preferences
-            if ((boolean) gameModule.getPrefs().getValue(TWO_DICE_BUTTON_SETTINGS) == false)
-                gameModule.getToolBar().remove(diceToolbarIndex + 1);
+
+            // Update Dice Buttons visibility
+            oneDieButton.setVisible((boolean) gameModule.getPrefs().getValue(ONE_DIE_BUTTON_SETTINGS));
+            twoDiceButton.setVisible((boolean) gameModule.getPrefs().getValue(TWO_DICE_BUTTON_SETTINGS));
+
 
             // ...FRAME RATE
             final IntConfigurer frameRateSettings = new IntConfigurer(FRAME_RATE_SETTINGS, "Frame Rate (MAX: " + MAX_FRAME_RATE + " / MIN: " + MIN_FRAME_RATE + ")", frameRate);
@@ -261,6 +303,35 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
+    private void testRoutine(){
+        new Thread (() -> {
+            Robot robot;
+            try {
+                robot = new Robot();
+            } catch (AWTException e) {
+                e.printStackTrace();
+                return; // Handle the exception appropriately based on your application's requirements
+            }
+
+            while (testRunning) {
+                try {
+
+                    // Move the mouse cursor to a specific position
+                    int x = 190; // X-coordinate
+                    int y = 70; // Y-coordinate
+                    robot.mouseMove(x, y);
+                    // Simulate a left mouse button click
+                    robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+                    robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+
+                }
+            }
+            Thread.currentThread().interrupt();
+        }).start();
+    }
+
     private void loadSounds(){
         try {
             // Preload the audio data into memory
@@ -284,6 +355,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             Clip clip = AudioSystem.getClip();
             clip.open(audioInputStream);
             new Thread(() -> {
+                System.out.println("STARTING Sounds Thread Number " + playSoundsThreadCounter);
                 clip.start();
                 while (clip.getFramePosition() < clip.getFrameLength()){
                     if (shouldStopFlag)
@@ -291,6 +363,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     Thread.yield();
                 }
                 clip.close();
+                System.out.println("Before INTERRUPTION Sounds Thread Number " + playSoundsThreadCounter);
+                playSoundsThreadCounter ++;
                 Thread.currentThread().interrupt();
             }).start();
             try{  // Works without the try block, but seems to delay the first use of sounds
@@ -309,32 +383,47 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private void executeRoll(int numberOfDice){
         // ENDS THE ANIMATION
         if (isImageVisible){
+            //System.out.println("N11");
             oneDieButton.setEnabled(false);
             twoDiceButton.setEnabled(false);
             for (String key: pieces.keySet())
                 hideImage(pieces.get(key)[pieces.get(key).length - 1]); // Hide last frame, which remained visible
             isImageVisible = false;
+
+
+            //System.out.println("N12");
             // We definitely remove each piece so that no artifacts are presented on screen and load new images for each result
             try{
                 new Thread(() -> {
-                    for (String key: pieces.keySet()) {
-                        for (BasicPiece piece: pieces.get(key)) {
-                            Command remove = new RemovePiece(piece);
-                            remove.execute();
+                    System.out.println("STARTING buttons reset thread number " + buttonResetThreadCouter);
+                    //System.out.println("N13");
+                    for (String key : pieces.keySet()) {
+                        for (BasicPiece piece : pieces.get(key)) {
+                            if (piece != null) {
+                                Command remove = new RemovePiece(piece);
+                                try {
+                                    remove.execute();
+                                } catch (NullPointerException e){
+                                    System.out.println("Unable to remove the piece");
+                                }
+                            }
                         }
                     }
-                    //DrawDiceFolders();
+                    //System.out.println("N14");
                     while (feedingImages){
                         Thread.yield();
                     }
+                    //System.out.println("N15");
                     oneDieButton.setText("Roll Die");
                     oneDieButton.setEnabled(true);
                     twoDiceButton.setText("Roll Dice");
                     twoDiceButton.setEnabled(true);
                     currentMap.getView().repaint();
-                    // executeRoll(2); // AUTO ROLL FOR TESTS. REMOVE LATER
+                    System.out.println("Before INTERRUPTION of buttons reset thread number " + buttonResetThreadCouter);
+                    buttonResetThreadCouter ++;
                     Thread.currentThread().interrupt();
                 }).start();
+
             } catch (Exception e){
                 System.out.println("Inside executeRoll. Exception while Resetting Roll Dice Button.");
                 e.printStackTrace();
@@ -342,6 +431,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
         } else {
             // BEGINS THE ANIMATION
+            //System.out.println("N1 ------------------------------------------------------------------------------------------------------------------------------");
             isAnimationInProgress = true;
             oneDieButton.setEnabled(false);
             twoDiceButton.setEnabled(false);
@@ -355,12 +445,18 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 createPieces("red", results[0]);
                 createPieces("white", results[1]);
             }
-
-            //PRELOAD NEXT IMAGES - replaced from end of getImages (VERIFY!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
+            //System.out.println("N2");
+            //PRELOAD NEXT SET OF IMAGES
+            feedingImages = true;
             try{
                 new Thread(() -> {
-                    feedingImages = true; // Set to false in DrawDiceFolders, after loading images has finished
-                    DrawDiceFolders();
+                    System.out.println("STARTING drawDiceFolder thread number " + drawDiceFoderThreadCounter);
+                    DrawDiceFolders(); // Set feedingImages to FALSE after ending feed
+                    synchronized (feedingImagesLock){
+                        feedingImagesLock.notify();
+                    }
+                    System.out.println("Before INTERRUPTION of drawDiceFolder thread number " + drawDiceFoderThreadCounter);
+                    drawDiceFoderThreadCounter ++;
                     Thread.currentThread().interrupt();
                 }).start();
             } catch (Exception e){
@@ -384,8 +480,11 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
             int whiteDieAnimationLength = pieces.get("white").length;
             int redDieAnimationLength = (pieces.containsKey("red") ? pieces.get("red").length : 0);
-
+            //System.out.println("N3");
+            //System.out.println("WHITE DIE ANIM LENGTH: " + whiteDieAnimationLength);
+            //System.out.println("RED DIE ANIM LENGTH: " + redDieAnimationLength);
             int diePosition = new Random().nextInt(numberOfDice); // always 0 if only one die
+            System.out.println("STARTING display image thread number " + animationRunTaskCounter);
             Runnable task = () -> displayImage(x,y,whiteDieAnimationLength,redDieAnimationLength, diePosition);
             scheduler.scheduleAtFixedRate(task, 0, imageDelay, TimeUnit.MILLISECONDS);
         }
@@ -396,11 +495,14 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         try{
             if (!scheduler.awaitTermination(1, TimeUnit.SECONDS)){
                 scheduler.shutdownNow();
+                System.out.println("After INTERRUPTION of display image thread number " + animationRunTaskCounter);
+                animationRunTaskCounter ++;
                 oneDieButton.setEnabled(true);
                 twoDiceButton.setEnabled(true);
                 isAnimationInProgress = false;
             }
         } catch (InterruptedException ex){
+            System.out.println("Unable to shut down Animation scheduler");
             scheduler.shutdownNow();
             Thread.currentThread().interrupt();
         }
@@ -410,53 +512,81 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
         if (currentMap != null){
             if (currentFrame == (whiteDieAnimationLength >= redDieAnimationLength ? whiteDieAnimationLength : redDieAnimationLength)) {
+                //System.out.println("N10");
                 stopImageDisplay();
                 currentFrame = 0;
                 isImageVisible = true; // can only set this to true after last image is displayed, since when the button is pressed again, the behavior depends on that variable.
                 oneDieButton.setText("Hide Die");
                 twoDiceButton.setText("Hide Dice");
 
-                // executeRoll(2); // AUTO ROLL FOR TESTS. REMOVE LATER
+                //executeRoll(2); // AUTO ROLL FOR TESTS. REMOVE LATER
                 return;
             }
-
+            //System.out.println("N4");
             int xCoordinate = x;
             int yCoordinate = y;
-            if (redDieAnimationLength == 0) {
-                currentMap.placeAt(pieces.get("white")[currentFrame], new Point(xCoordinate, yCoordinate));
-                if (currentFrame > 1) {
-                    currentMap.removePiece(pieces.get("white")[currentFrame - 1]);
-                }
-            } else if (redDieAnimationLength != 0){
-                if (currentFrame < (diePosition == 0 ? whiteDieAnimationLength : redDieAnimationLength)) {
-                    currentMap.placeAt(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame], new Point(xCoordinate, yCoordinate));
-                    if (currentFrame > 1) {
-                        currentMap.removePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame - 1]);
+                if (redDieAnimationLength == 0) {
+                            placePiece(pieces.get("white")[currentFrame], new Point(xCoordinate, yCoordinate));
+                        if (currentFrame > 1) {
+                                removePiece(pieces.get("white")[currentFrame - 1]);
+                        }
+                } else if (redDieAnimationLength != 0) {
+                    //System.out.println("N5");
+                    //System.out.println("Current Frame: " + currentFrame + " and " + (diePosition == 1 ? "Red Animation length :" + redDieAnimationLength:"White Animation length :" + whiteDieAnimationLength));
+                    if (currentFrame < (diePosition == 0 ? whiteDieAnimationLength : redDieAnimationLength)) {
+                        //System.out.println("N6");
+                                placePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame], new Point(xCoordinate, yCoordinate));
+                            if (currentFrame > 1) {
+                                    removePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame - 1]);
+
+                            }
+                    }
+                    //System.out.println("N7");
+                    //System.out.println("Current Frame: " + currentFrame + " and " + (diePosition == 0 ? "Red Animation length :" + redDieAnimationLength:"White Animation length :" + whiteDieAnimationLength));
+                    if (currentFrame < (diePosition == 0 ? redDieAnimationLength : whiteDieAnimationLength)) {
+                        //System.out.println("N8");
+                                placePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame], new Point(xCoordinate + IMAGE_SIZE, yCoordinate));
+                            if (currentFrame > 1) {
+                                    removePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame - 1]);
+                            }
                     }
                 }
-
-                if (currentFrame < (diePosition == 0 ? redDieAnimationLength : whiteDieAnimationLength)){
-                    currentMap.placeAt(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame], new Point(xCoordinate + IMAGE_SIZE, yCoordinate));
-                    if (currentFrame > 1) {
-                        currentMap.removePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame - 1]);
-                    }
-                }
-            }
-
+            //System.out.println("N9");
             currentFrame = (currentFrame + 1);
+        }
+    }
+
+    private synchronized void placePiece(BasicPiece piece, Point point) {
+        try {
+            if (piece != null)
+                currentMap.placeAt(piece, point);
+        } catch (Exception e){
+            System.out.println("NullPointerException when trying to PLACE the piece at frame: " + currentFrame);
+        }
+    }
+
+    private synchronized void removePiece(BasicPiece piece) {
+        try {
+            if (piece != null)
+                currentMap.removePiece(piece);
+        } catch (Exception e){
+            System.out.println("NullPointerException when trying to REMOVE the piece at frame: " + currentFrame);
         }
     }
 
     private void hideImage(BasicPiece piece) {
         if (currentMap != null) {
-            currentMap.removePiece(piece);
-            currentMap.repaint();
+            if (piece != null) {
+                removePiece(piece);
+                currentMap.repaint();
+            }
         }
     }
 
     private void createPieces(String die, int result){
         int numberOfPieces = preloadedImages.get(die).get(result).size();
         pieces.put(die, new BasicPiece[numberOfPieces]);
+        //System.out.println("PIECES CREATION START");
         for (int i = 0; i < numberOfPieces; i++){
             final int index = i; // make index final, so it can be accessed from the inner class
             BasicPiece piece = new BasicPiece() {
@@ -465,10 +595,12 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 public void draw(Graphics g, int x, int y, Component obs, double zoom) {
                     super.draw(g, x, y, obs, zoom);
                     // Draw the image at the specified (x, y) coordinates
-                    g.drawImage(image, x, y, obs);
+                        g.drawImage(image, x, y, obs);
                 }
             };
-            pieces.get(die)[i] = piece;
+            if (piece != null)
+                pieces.get(die)[i] = piece;
+            //System.out.println("PIECES CREATION END");
         }
     }
 
@@ -478,14 +610,27 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         images = new ArrayList<>();
         int imageNumber = 0;
         Random random = new Random();
-        System.out.println("Path: " + path);
+        //System.out.println("Path: " + path);
         while (true) {
             try {
+                //System.out.println("URL BEFORE");
                 URL imageURL = dataArchive.getURL(path + String.format("die%04d", imageNumber) + ".png");
-                preloadedImages.get(die).get(result).add(ImageIO.read(imageURL));
-                imageNumber++;
+                //System.out.println("URL AFTER: " + imageURL);
+                try{
+                    //System.out.println("READING IMAGE BEFORE");
+                    Image image = ImageIO.read(imageURL);
+                    //System.out.println("Image: " + image);
+                    //System.out.println("Before adding image to preloadedImages");
+                    if (image != null)
+                        preloadedImages.get(die).get(result).add(image);
+                    //System.out.println("READING IMAGE AFTER");
+                    imageNumber++;
+                } catch (IOException e){
+                    System.out.println("FAILED TO LOAD EXISTING IMAGE URL");
+                    e.printStackTrace();
+                }
             } catch (IOException e) {
-                System.out.println("getImages Exception");
+                //System.out.println("getImages Exception");
                 break;
             }
         }
@@ -495,9 +640,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         System.out.println("BEGIN NEW DRAW");
         // Clears the previously preloaded images
         for (int i = 1; i <= NUMBER_OF_SIDES; i++){
-            preloadedImages.get("white").put(i, new ArrayList<Image>());
-            preloadedImages.get("red").put(i, new ArrayList<Image>());
+            preloadedImages.get("white").get(i).clear();
+            preloadedImages.get("red").get(i).clear();
         }
+        System.gc();
         // RECOVER THE LAST ANIMATION VARIANT FOR EACH COLOR. O MEANS NONE.
         int lastRedHesitantAnim = (boolean) lastAnimationUsed.get("red")[1] ? (int) lastAnimationUsed.get("red")[0] : 0;
         int lastWhiteHesitantAnim = (boolean) lastAnimationUsed.get("white")[1] ? (int) lastAnimationUsed.get("white")[0] : 0;
@@ -530,8 +676,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 StringBuilder path = new StringBuilder();
                 path.append(folderPrefix).append((hesitantDie == 0) ? "W" : "R").append(animNumber).append("_")
                         .append(animVariation.get(random.nextInt(animVariation.size()))).append("_").append(i).append("/");
+                //System.out.println("HESITANT: PATH BEFORE GET IMAGES");
                 //System.out.println(path);
-
                 getImages(path.toString(), (hesitantDie == 0) ? "white" : "red", i);
             }
             if (hesitantDie == 0) {
@@ -555,6 +701,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 StringBuilder path = new StringBuilder();
                 path.append(RED_DIE_FOLDER_PATH).append("R").append(redAnimNumber).append("_")
                         .append(i).append("/");
+
+                //System.out.println("RED BEFORE GET IMAGES");
                 //System.out.println(path);
                 getImages(path.toString(), "red", i);
             }
@@ -565,6 +713,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 StringBuilder path = new StringBuilder();
                 path.append(WHITE_DIE_FOLDER_PATH).append("W").append(whiteAnimNumber).append("_")
                         .append(i).append("/");
+
+                //System.out.println("WHITE BEFORE GET IMAGES");
                 //System.out.println(path);
                 getImages(path.toString(), "white", i);
             }
@@ -651,14 +801,14 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }catch(IOException e){
 
         }
-        System.out.println("Before printing");
+        /*System.out.println("Before printing");
         for (int i = 1; i <= 5; i++) {
             for (int k = 1; k <= 6; k++) {
                 System.out.println("Number of animation: " + i +
                         " brings the following patterns for /'/" + folderNameBuilder.get(i).get(k) +
                         "/'/ result : " + k);
             }
-        }
+        }*/
         return folderNameBuilder;
     }
 
@@ -712,8 +862,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 java.util.Timer timer;
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    System.out.println("Mouse pressed action inside DelayedActionButton class: NEW ROLL");
-                    System.out.println("isImageVisible: " + isImageVisible + " / isAnimationInProgress: " + isAnimationInProgress);
+                    //System.out.println("Mouse pressed action inside DelayedActionButton class: NEW ROLL");
+                    //System.out.println("isImageVisible: " + isImageVisible + " / isAnimationInProgress: " + isAnimationInProgress);
                     super.mousePressed(e);
                     mouseButtonPressed = true;
                     if (!isImageVisible && !isAnimationInProgress) { // doesn't execute when pressed to hide the dices (dice images are still visible)
@@ -722,23 +872,31 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         mouseBiasFactor = new int[NUMBER_OF_DICE]; // We'll the number of factors correspondent to the number of dice;
                         Arrays.fill(mouseBiasFactor, 1);
                         final int[] counter = new int[]{0}; // Use of single element array in order to be able to change it inside runnable.
-
+                        System.out.println("Before STARTING button timer number " + buttonTimerCounter);
+                        final long startTime = System.currentTimeMillis();
                         timer = new java.util.Timer();
                         timer.schedule(new TimerTask() {
                             @Override
                             public void run() {
-                                System.out.println("Mouse Position: " + MouseInfo.getPointerInfo().getLocation());
+                                //System.out.println("Mouse Position: " + MouseInfo.getPointerInfo().getLocation());
 
-                                mouseBiasFactor[counter[0]] += MouseInfo.getPointerInfo().getLocation().x + MouseInfo.getPointerInfo().getLocation().y;
-                                if (mouseBiasFactor[counter[0]] > 10000)
-                                    mouseBiasFactor[counter[0]] = mouseBiasFactor[counter[0]] - 10000;
-
-                                if (counter[0] == mouseBiasFactor.length - 1) {
-                                    counter[0] = 0;
+                                long elapsedTime = System.currentTimeMillis() - startTime;
+                                System.out.println("N1");
+                                if (elapsedTime >= 5000) {
+                                        this.cancel();
                                 } else {
-                                    counter[0] = counter[0] + 1;
+
+                                    mouseBiasFactor[counter[0]] += MouseInfo.getPointerInfo().getLocation().x + MouseInfo.getPointerInfo().getLocation().y;
+                                    if (mouseBiasFactor[counter[0]] > 10000)
+                                        mouseBiasFactor[counter[0]] = mouseBiasFactor[counter[0]] - 10000;
+
+                                    if (counter[0] == mouseBiasFactor.length - 1) {
+                                        counter[0] = 0;
+                                    } else {
+                                        counter[0] = counter[0] + 1;
+                                    }
                                 }
-                                System.out.println("Bias " + counter[0] + " = " + mouseBiasFactor[counter[0]]);
+                                //System.out.println("Bias " + counter[0] + " = " + mouseBiasFactor[counter[0]]);
                             }
                         }, 0, 10);
                     }
@@ -751,7 +909,11 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     setCursor(Cursor.getDefaultCursor());
                     if (mouseButtonPressed && isEnabled()) {
                         shouldStopFlag = true;
-                        timer.cancel();
+                        if (timer != null) {
+                            System.out.println("Before INTERRUPTING button timer thread number " + buttonTimerCounter);
+                            buttonTimerCounter++;
+                            timer.cancel();
+                        }
                         delayedActionListener.actionPerformed(new ActionEvent(this, ActionEvent.ACTION_PERFORMED, ""));
                     }
                     mouseButtonPressed = false;
