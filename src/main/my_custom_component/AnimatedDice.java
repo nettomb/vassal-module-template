@@ -405,63 +405,77 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
 
     private void executeRoll(int numberOfDice){
-            // BEGINS THE ANIMATION
-            //System.out.println("N1 ------------------------------------------------------------------------------------------------------------------------------");
-            isAnimationInProgress = true;
-            oneDieButton.setEnabled(false);
-            twoDiceButton.setEnabled(false);
-            imageDelay = (1000/frameRate); // transform frame rate into milliseconds delay
+        // UNABLE BUTTONS AND HIDE DICE IF NOT YET HIDDEN
+        isAnimationInProgress = true;
+        oneDieButton.setEnabled(false);
+        twoDiceButton.setEnabled(false);
 
-            int[] results = RollDices (numberOfDice, NUMBER_OF_SIDES);
-            pieces = new HashMap<>();
-            if (numberOfDice == 1) {
-                createPieces("white", results[0]);
-            } else if (numberOfDice == 2){
-                createPieces("red", results[0]);
-                createPieces("white", results[1]);
+        if (isImageVisible) { // Checks to see if the last frame is still visible. It can be cleaned when the onScreenDuration time value has passed.
+            for (String key : pieces.keySet()) {
+                hideImage(pieces.get(key)[pieces.get(key).length - 1]); // Hide last frame, which remained visible
+                if (pieces.get(key)[pieces.get(key).length - 1] != null) {
+                    Command remove = new RemovePiece(pieces.get(key)[pieces.get(key).length - 1]);
+                    remove.execute();
+                }
             }
-            //System.out.println("N2");
-            //PRELOAD NEXT SET OF IMAGES
-            feedingImages = true;
-            try{
-                new Thread(() -> {
-                    System.out.println("STARTING drawDiceFolder thread number " + drawDiceFoderThreadCounter);
-                    DrawDiceFolders(); // Set feedingImages to FALSE after ending feed
-                    synchronized (feedingImagesLock){
-                        feedingImagesLock.notify();
-                    }
-                    System.out.println("Before INTERRUPTION of drawDiceFolder thread number " + drawDiceFoderThreadCounter);
-                    drawDiceFoderThreadCounter ++;
-                    Thread.currentThread().interrupt();
-                }).start();
-            } catch (Exception e){
-                System.out.println("Unable to preload images");
-                e.printStackTrace();
-            }
+        }
 
-            scheduler = Executors.newSingleThreadScheduledExecutor();
-            if (numberOfDice == 1)
-                playSounds(dieAudioData);
-            else
-                playSounds(diceAudioData);
+        // ROLL DICE AND CREATE PIECES
+        int[] results = RollDices (numberOfDice, NUMBER_OF_SIDES);
+        pieces = new HashMap<>();
+        if (numberOfDice == 1) {
+            createPieces("white", results[0]);
+        } else if (numberOfDice == 2){
+            createPieces("red", results[0]);
+            createPieces("white", results[1]);
+        }
 
-            Rectangle rectangle = currentMap.getView().getVisibleRect();
-            // If dicePosition (set up in preferences), which is the offset of the animation to the left,
-            // is larger than the width of the window minus the width of the images, we adjust it to the maximum place to which the animation may be offset without cropping the image.
-            int adjustedDicePositionSettings = (dicePositionSettings > (rectangle.width - (IMAGE_SIZE * numberOfDice))? Math.max (rectangle.width - (IMAGE_SIZE * numberOfDice), 0): dicePositionSettings);
-            int min_x = rectangle.x; // leftmost point of the current visible rectangle
-            int x = (min_x + adjustedDicePositionSettings); // we add the adjusted offset to the leftmost point of the window.
-            int y = rectangle.y;
+        // START PRELOAD OF NEXT SET OF IMAGES
+        feedingImages = true;
+        try{
+            new Thread(() -> {
+                System.out.println("STARTING drawDiceFolder thread number " + drawDiceFoderThreadCounter);
+                DrawDiceFolders(); // Set feedingImages to FALSE after ending feed
+                synchronized (feedingImagesLock){
+                    feedingImagesLock.notify();
+                }
+                System.out.println("Before INTERRUPTION of drawDiceFolder thread number " + drawDiceFoderThreadCounter);
+                drawDiceFoderThreadCounter ++;
+                Thread.currentThread().interrupt();
+            }).start();
+        } catch (Exception e){
+            System.out.println("Unable to preload images");
+            e.printStackTrace();
+        }
+        scheduler = Executors.newSingleThreadScheduledExecutor();
 
-            int whiteDieAnimationLength = pieces.get("white").length;
-            int redDieAnimationLength = (pieces.containsKey("red") ? pieces.get("red").length : 0);
-            //System.out.println("N3");
-            //System.out.println("WHITE DIE ANIM LENGTH: " + whiteDieAnimationLength);
-            //System.out.println("RED DIE ANIM LENGTH: " + redDieAnimationLength);
-            int diePosition = new Random().nextInt(numberOfDice); // always 0 if only one die
-            System.out.println("STARTING display image thread number " + animationRunTaskCounter);
-            Runnable task = () -> displayImage(x,y,whiteDieAnimationLength,redDieAnimationLength, diePosition);
-            scheduler.scheduleAtFixedRate(task, 0, imageDelay, TimeUnit.MILLISECONDS);
+        // START SOUNDS
+        if (numberOfDice == 1)
+            playSounds(dieAudioData);
+        else
+            playSounds(diceAudioData);
+
+        // SET PARAMETERS
+        imageDelay = (1000/frameRate); // transform frame rate into milliseconds delay
+
+        Rectangle rectangle = currentMap.getView().getVisibleRect();
+        // If dicePosition (set up in preferences), which is the offset of the animation to the left,
+        // is larger than the width of the window minus the width of the images, we adjust it to the maximum place to which the animation may be offset without cropping the image.
+        int adjustedDicePositionSettings = (dicePositionSettings > (rectangle.width - (IMAGE_SIZE * numberOfDice))? Math.max (rectangle.width - (IMAGE_SIZE * numberOfDice), 0): dicePositionSettings);
+        int min_x = rectangle.x; // leftmost point of the current visible rectangle
+        int x = (min_x + adjustedDicePositionSettings); // we add the adjusted offset to the leftmost point of the window.
+        int y = rectangle.y;
+
+        int whiteDieAnimationLength = pieces.get("white").length;
+        int redDieAnimationLength = (pieces.containsKey("red") ? pieces.get("red").length : 0);
+        //System.out.println("N3");
+        //System.out.println("WHITE DIE ANIM LENGTH: " + whiteDieAnimationLength);
+        //System.out.println("RED DIE ANIM LENGTH: " + redDieAnimationLength);
+        int diePosition = new Random().nextInt(numberOfDice); // always 0 if only one die
+
+        // BEGINS THE ANIMATION
+        Runnable task = () -> displayImage(x,y,whiteDieAnimationLength,redDieAnimationLength, diePosition);
+        scheduler.scheduleAtFixedRate(task, 0, imageDelay, TimeUnit.MILLISECONDS);
     }
 
     public void stopImageDisplay(){
@@ -484,15 +498,17 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             long startTime = System.currentTimeMillis();
             new Thread(()->{
                 while (System.currentTimeMillis() - startTime < (onScreenDuration * 1000)) {
-                    System.out.println("Time: "  + (System.currentTimeMillis() - startTime));
+                    if (isAnimationInProgress)
+                        break;
                     Thread.yield();
                 }
                 if (isImageVisible) { // Checks to see if the last frame is still visible. It can be cleaned by a click for a new Roll.
                     System.out.println("n2");
                     for (String key : pieces.keySet()) {
                         hideImage(pieces.get(key)[pieces.get(key).length - 1]); // Hide last frame, which remained visible
-                        if (pieces.get(key)[pieces.get(key).length - 1] != null) {
-                            Command remove = new RemovePiece(pieces.get(key)[pieces.get(key).length - 1]);
+                        BasicPiece p = pieces.get(key)[pieces.get(key).length - 1];
+                        if (p != null) {
+                            Command remove = new RemovePiece(p);
                             remove.execute();
                         }
                     }
@@ -510,7 +526,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         try {
             new Thread(() -> {
                 System.out.println("STARTING buttons reset thread number " + buttonResetThreadCouter);
-                BasicPiece lastRed = pieces.get("red")[pieces.get("red").length - 1];
+                BasicPiece lastRed = null;
+                if (pieces.containsKey("red"))
+                    lastRed = pieces.get("red")[pieces.get("red").length - 1];
                 BasicPiece lastWhite = pieces.get("white")[pieces.get("white").length - 1];
                 for (String key : pieces.keySet()) {
                     for (BasicPiece piece : pieces.get(key)) {
