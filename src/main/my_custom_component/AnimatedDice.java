@@ -84,7 +84,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final int NUMBER_OF_DIE_ANIMATIONS = 27; // ALTER THAT IF MORE ANIMATIONS ARE ADEED
     private final int NUMBER_OF_HESITANT_DIE_ANIMATIONS = 5;
     private boolean feedingImages; // Checks if the thread for loading images is still running
-    private boolean stopSound;
+    private Object soundObject = new Object();
     private final Object feedingImagesLock = new Object(); // Lock to be used by threads to synchronize the feeding images process
     private byte[] dieAudioData;
     private byte[] diceAudioData;
@@ -373,18 +373,19 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
-    private void playSounds(byte[] audioData, boolean stop){
+    private void playSounds(byte[] audioData){
         try{
             AudioInputStream audioInputStream = AudioSystem.getAudioInputStream(new ByteArrayInputStream(audioData));
             Clip clip = AudioSystem.getClip();
             clip.open(audioInputStream);
             new Thread(() -> {
-                System.out.println("STARTING Sounds Thread Number " + playSoundsThreadCounter);
                 clip.start();
-                while (clip.getFramePosition() < clip.getFrameLength()){
-                    if (stop)
-                        break;
-                    Thread.yield();
+                try {
+                    synchronized (soundObject) {
+                        soundObject.wait();
+                    }
+                } catch (InterruptedException e){
+
                 }
                 clip.close();
                 Thread.currentThread().interrupt();
@@ -407,15 +408,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         oneDieButton.setEnabled(false);
         twoDiceButton.setEnabled(false);
 
-        if (isImageVisible) { // Checks to see if the last frame is still visible. It can be cleaned when the onScreenDuration time value has passed.
-            for (String key : pieces.keySet()) {
-                //hideImage(pieces.get(key)[pieces.get(key).length - 1]); // Hide last frame, which remained visible
-                if (pieces.get(key)[pieces.get(key).length - 1] != null) {
-                    Command remove = new RemovePiece(pieces.get(key)[pieces.get(key).length - 1]);
-                    remove.execute();
-                }
-            }
-        }
+        removeLastFrames();
 
         // ROLL DICE AND CREATE PIECES
         int[] results = RollDices (numberOfDice, NUMBER_OF_SIDES);
@@ -431,12 +424,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         feedingImages = true;
         try{
             new Thread(() -> {
-                System.out.println("STARTING drawDiceFolder thread number " + drawDiceFoderThreadCounter);
                 DrawDiceFolders(); // Set feedingImages to FALSE after ending feed
                 synchronized (feedingImagesLock){
                     feedingImagesLock.notify();
                 }
-                System.out.println("Before INTERRUPTION of drawDiceFolder thread number " + drawDiceFoderThreadCounter);
                 drawDiceFoderThreadCounter ++;
                 Thread.currentThread().interrupt();
             }).start();
@@ -445,12 +436,12 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             e.printStackTrace();
         }
         scheduler = Executors.newSingleThreadScheduledExecutor();
-        stopSound = false;
+
         // START SOUNDS
         if (numberOfDice == 1)
-            playSounds(dieAudioData, stopSound);
+            playSounds(dieAudioData);
         else
-            playSounds(diceAudioData, stopSound);
+            playSounds(diceAudioData);
 
         // SET PARAMETERS
         imageDelay = (1000/frameRate); // transform frame rate into milliseconds delay
@@ -475,14 +466,30 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         scheduler.scheduleAtFixedRate(task, 0, imageDelay, TimeUnit.MILLISECONDS);
     }
 
+    private void removeLastFrames(){
+        synchronized (this) {
+            if (isImageVisible) { // Checks to see if the last frame is still visible. It can be cleaned when the onScreenDuration time value has passed.
+                isImageVisible = false;
+                for (String key : pieces.keySet()) {
+                    //hideImage(pieces.get(key)[pieces.get(key).length - 1]); // Hide last frame, which remained visible
+                    if (pieces.get(key)[pieces.get(key).length - 1] != null) {
+                        Command remove = new RemovePiece(pieces.get(key)[pieces.get(key).length - 1]);
+                        remove.execute();
+                    }
+                }
+            }
+        }
+    }
+
     public void stopImageDisplay(){
         // ENDS ANIMATION
         scheduler.shutdown();
         try{
             if (!scheduler.awaitTermination(1, TimeUnit.SECONDS)){
                 scheduler.shutdownNow();
-                System.out.println("After INTERRUPTION of display image thread number " + animationRunTaskCounter);
-                stopSound = true;
+                /*synchronized (soundObject){
+                    soundObject.notify();
+                }*/
                 isAnimationInProgress = false;
             }
         } catch (InterruptedException ex){
@@ -502,14 +509,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         break;
                     Thread.yield();
                 }
-                if (isImageVisible) { // Checks to see if the last frame is still visible. It can be cleaned by a click for a new Roll.
-                    removePiece(lastRed); // Hide last frame, which remained visible
-                    removePiece(lastWhite);
-                    isImageVisible = false;
-                    Thread.currentThread().interrupt();
-                } else {
-                    Thread.currentThread().interrupt();
-                }
+                removeLastFrames();
+                Thread.currentThread().interrupt();
             }).start();
         } catch (Exception e){
             e.printStackTrace();
@@ -533,8 +534,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 oneDieButton.setEnabled(true);
                 twoDiceButton.setEnabled(true);
                 currentMap.getView().repaint();
-                System.out.println("Before INTERRUPTION of buttons reset thread number " + buttonResetThreadCouter);
-                buttonResetThreadCouter++;
                 Thread.currentThread().interrupt();
             }).start();
 
@@ -549,6 +548,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         if (currentMap != null){
             if (currentFrame == (whiteDieAnimationLength >= redDieAnimationLength ? whiteDieAnimationLength : redDieAnimationLength)) {
                 //System.out.println("N10");
+                synchronized (soundObject){
+                    soundObject.notify();
+                }
                 stopImageDisplay();
                 currentFrame = 0;
                 isImageVisible = true; // can only set this to true after last image is displayed, since when the button is pressed again, the behavior depends on that variable.
@@ -602,7 +604,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
     private synchronized void removePiece(BasicPiece piece) {
         try {
+            System.out.println("PIECE BEFORE REMOVAL: " + piece);
+            System.out.println("IS PIECE NULL? " + (piece == null? "Yes" : "No"));
             if (piece != null) {
+                System.out.println("Inside removal block");
                 Command remove = new RemovePiece(piece);
                 remove.execute();
             }
@@ -876,7 +881,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     public class DelayedActionButton extends JButton {
         private boolean mouseButtonPressed = false;
         private ActionListener delayedActionListener;
-        private boolean stopSound = false;
 
         public DelayedActionButton(String buttonText, ActionListener delayedActionListener) {
             super();
@@ -894,26 +898,35 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     //System.out.println("isImageVisible: " + isImageVisible + " / isAnimationInProgress: " + isAnimationInProgress);
                     super.mousePressed(e);
                     mouseButtonPressed = true;
-                    if (!isImageVisible && !isAnimationInProgress && isEnabled()) { // doesn't execute when pressed to hide the dices (dice images are still visible)
+                    if (!isAnimationInProgress && isEnabled()) { // doesn't execute when pressed to hide the dices (dice images are still visible)
                         setCursor(dieCursor);
-                        stopSound = false;
-                        playSounds(shakingDiceAudioData, stopSound);
+                        playSounds(shakingDiceAudioData);
                         mouseBiasFactor = new int[NUMBER_OF_DICE]; // We'll the number of factors correspondent to the number of dice;
                         Arrays.fill(mouseBiasFactor, 1);
                         final int[] counter = new int[]{0}; // Use of single element array in order to be able to change it inside runnable.
                         System.out.println("Before STARTING button timer number " + buttonTimerCounter);
                         final long startTime = System.currentTimeMillis();
                         timer = new java.util.Timer();
+                        JButton button = (JButton) e.getSource();
+                        Color originalColor = button.getBackground();
+
                         timer.schedule(new TimerTask() {
+                            long colorCounter = 10;
                             @Override
                             public void run() {
                                 //System.out.println("Mouse Position: " + MouseInfo.getPointerInfo().getLocation());
 
                                 long elapsedTime = System.currentTimeMillis() - startTime;
-                                System.out.println("N1");
                                 if (elapsedTime >= 5000) {
                                         this.cancel();
                                 } else {
+                                    if (elapsedTime > colorCounter) {
+                                        if (button.getBackground() == originalColor)
+                                            button.setBackground(Color.RED);
+                                        else
+                                            button.setBackground(originalColor);
+                                        colorCounter += 100;
+                                    }
 
                                     mouseBiasFactor[counter[0]] += MouseInfo.getPointerInfo().getLocation().x + MouseInfo.getPointerInfo().getLocation().y;
                                     if (mouseBiasFactor[counter[0]] > 10000)
@@ -937,10 +950,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     super.mouseReleased(e);
                     setCursor(Cursor.getDefaultCursor());
                     if (mouseButtonPressed && isEnabled()) {
-                        stopSound = true;
+                        synchronized (soundObject){
+                            soundObject.notify();
+                        }
                         if (timer != null) {
-                            System.out.println("Before INTERRUPTING button timer thread number " + buttonTimerCounter);
-                            buttonTimerCounter++;
                             timer.cancel();
                         }
                         if (e.getButton() == MouseEvent.BUTTON1) { // if left button, display animation
