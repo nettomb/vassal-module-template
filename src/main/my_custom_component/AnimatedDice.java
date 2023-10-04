@@ -170,24 +170,31 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             // CREATE BUTTONS
             URL iconURL = null;
             try {
-                iconURL = dataArchive.getURL("Cursor/DieCursor.png");
+                iconURL = dataArchive.getURL("Cursor/RollDieButton.png");
             } catch (IOException e){
-
+                e.printStackTrace();
             }
             ImageIcon icon = new ImageIcon(iconURL);
-            oneDieButton = new DelayedActionButton("Roll Die", icon, new ActionListener() {
+            oneDieButton = new DelayedActionButton("", icon, new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     executeRoll(1);
                 }
             });
-
-            twoDiceButton = new DelayedActionButton("Roll Dice", icon, new ActionListener() {
+            oneDieButton.setMargin(new Insets(0,3,0,3));
+            try {
+                iconURL = dataArchive.getURL("Cursor/RollDiceButton.png");
+            } catch (IOException e){
+                e.printStackTrace();
+            }
+            icon = new ImageIcon(iconURL);
+            twoDiceButton = new DelayedActionButton("", icon, new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     executeRoll(2);
                 }
             });
+            twoDiceButton.setMargin(new Insets(0,3,0,3));
 
             JButton testButton = new JButton("Test Button");
             ActionListener listener = new ActionListener() {
@@ -588,8 +595,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 stopImageDisplay();
                 currentFrame = 0;
                 isImageVisible = true; // can only set this to true after last image is displayed, since when the button is pressed again, the behavior depends on that variable.
-                oneDieButton.setText("Hide Die");
-                twoDiceButton.setText("Hide Dice");
 
                 //executeRoll(2); // AUTO ROLL FOR TESTS. REMOVE LATER
                 return;
