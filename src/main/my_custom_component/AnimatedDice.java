@@ -84,11 +84,11 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final int NUMBER_OF_DIE_ANIMATIONS = 27; // ALTER THAT IF MORE ANIMATIONS ARE ADEED
     private final int NUMBER_OF_HESITANT_DIE_ANIMATIONS = 5;
     private boolean feedingImages; // Checks if the thread for loading images is still running
+    private boolean stopSound;
     private final Object feedingImagesLock = new Object(); // Lock to be used by threads to synchronize the feeding images process
     private byte[] dieAudioData;
     private byte[] diceAudioData;
     private byte[] shakingDiceAudioData;
-    private boolean shouldStopFlag;
     private Cursor dieCursor;
     private boolean actionInProgress = false;
     private HashMap<String, BasicPiece[]> pieces; // pieces are added to this array to be displayed in order
@@ -373,7 +373,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
-    private void playSounds(byte[] audioData){
+    private void playSounds(byte[] audioData, boolean stop){
         try{
             AudioInputStream audioInputStream = AudioSystem.getAudioInputStream(new ByteArrayInputStream(audioData));
             Clip clip = AudioSystem.getClip();
@@ -382,13 +382,11 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 System.out.println("STARTING Sounds Thread Number " + playSoundsThreadCounter);
                 clip.start();
                 while (clip.getFramePosition() < clip.getFrameLength()){
-                    if (shouldStopFlag)
-                        clip.close();
+                    if (stop)
+                        break;
                     Thread.yield();
                 }
                 clip.close();
-                System.out.println("Before INTERRUPTION Sounds Thread Number " + playSoundsThreadCounter);
-                playSoundsThreadCounter ++;
                 Thread.currentThread().interrupt();
             }).start();
             try{  // Works without the try block, but seems to delay the first use of sounds
@@ -400,7 +398,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             System.out.println("Exception thrown");
             e.printStackTrace();
         }
-        shouldStopFlag = false;
     }
 
 
@@ -412,7 +409,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
         if (isImageVisible) { // Checks to see if the last frame is still visible. It can be cleaned when the onScreenDuration time value has passed.
             for (String key : pieces.keySet()) {
-                hideImage(pieces.get(key)[pieces.get(key).length - 1]); // Hide last frame, which remained visible
+                //hideImage(pieces.get(key)[pieces.get(key).length - 1]); // Hide last frame, which remained visible
                 if (pieces.get(key)[pieces.get(key).length - 1] != null) {
                     Command remove = new RemovePiece(pieces.get(key)[pieces.get(key).length - 1]);
                     remove.execute();
@@ -448,12 +445,12 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             e.printStackTrace();
         }
         scheduler = Executors.newSingleThreadScheduledExecutor();
-
+        stopSound = false;
         // START SOUNDS
         if (numberOfDice == 1)
-            playSounds(dieAudioData);
+            playSounds(dieAudioData, stopSound);
         else
-            playSounds(diceAudioData);
+            playSounds(diceAudioData, stopSound);
 
         // SET PARAMETERS
         imageDelay = (1000/frameRate); // transform frame rate into milliseconds delay
@@ -469,8 +466,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         int whiteDieAnimationLength = pieces.get("white").length;
         int redDieAnimationLength = (pieces.containsKey("red") ? pieces.get("red").length : 0);
         //System.out.println("N3");
-        //System.out.println("WHITE DIE ANIM LENGTH: " + whiteDieAnimationLength);
-        //System.out.println("RED DIE ANIM LENGTH: " + redDieAnimationLength);
+        System.out.println("WHITE DIE ANIM LENGTH: " + whiteDieAnimationLength);
+        System.out.println("RED DIE ANIM LENGTH: " + redDieAnimationLength);
         int diePosition = new Random().nextInt(numberOfDice); // always 0 if only one die
 
         // BEGINS THE ANIMATION
@@ -485,7 +482,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             if (!scheduler.awaitTermination(1, TimeUnit.SECONDS)){
                 scheduler.shutdownNow();
                 System.out.println("After INTERRUPTION of display image thread number " + animationRunTaskCounter);
-                animationRunTaskCounter ++;
+                stopSound = true;
                 isAnimationInProgress = false;
             }
         } catch (InterruptedException ex){
@@ -494,6 +491,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             Thread.currentThread().interrupt();
         }
         // CLEANS PIECES AND RESET BUTTONS
+
+        final BasicPiece lastRed = pieces.containsKey("red") ? pieces.get("red")[pieces.get("red").length - 1] : null;
+        final BasicPiece lastWhite = pieces.get("white")[pieces.get("white").length - 1];
         try { // Remove last piece still visible if not already done after the onScreenDuration time value.
             long startTime = System.currentTimeMillis();
             new Thread(()->{
@@ -503,15 +503,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     Thread.yield();
                 }
                 if (isImageVisible) { // Checks to see if the last frame is still visible. It can be cleaned by a click for a new Roll.
-                    System.out.println("n2");
-                    for (String key : pieces.keySet()) {
-                        hideImage(pieces.get(key)[pieces.get(key).length - 1]); // Hide last frame, which remained visible
-                        BasicPiece p = pieces.get(key)[pieces.get(key).length - 1];
-                        if (p != null) {
-                            Command remove = new RemovePiece(p);
-                            remove.execute();
-                        }
-                    }
+                    removePiece(lastRed); // Hide last frame, which remained visible
+                    removePiece(lastWhite);
                     isImageVisible = false;
                     Thread.currentThread().interrupt();
                 } else {
@@ -525,13 +518,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         // We definitely remove each piece so that no artifacts are presented on screen and load new images for each result
         try {
             new Thread(() -> {
-                System.out.println("STARTING buttons reset thread number " + buttonResetThreadCouter);
-                BasicPiece lastRed = null;
-                if (pieces.containsKey("red"))
-                    lastRed = pieces.get("red")[pieces.get("red").length - 1];
-                BasicPiece lastWhite = pieces.get("white")[pieces.get("white").length - 1];
                 for (String key : pieces.keySet()) {
                     for (BasicPiece piece : pieces.get(key)) {
+                        //System.out.println("Piece : " + piece);
                         if (piece != null && !piece.equals(key == "red" ? lastRed : lastWhite)) {
                             Command remove = new RemovePiece(piece);
                             remove.execute();
@@ -584,8 +573,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         //System.out.println("N6");
                                 placePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame], new Point(xCoordinate, yCoordinate));
                             if (currentFrame > 1) {
-                                    removePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame - 1]);
-
+                                removePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame - 1]);
                             }
                     }
                     //System.out.println("N7");
@@ -594,7 +582,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         //System.out.println("N8");
                                 placePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame], new Point(xCoordinate + IMAGE_SIZE, yCoordinate));
                             if (currentFrame > 1) {
-                                    removePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame - 1]);
+                                removePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame - 1]);
                             }
                     }
                 }
@@ -614,19 +602,12 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
     private synchronized void removePiece(BasicPiece piece) {
         try {
-            if (piece != null)
-                currentMap.removePiece(piece);
+            if (piece != null) {
+                Command remove = new RemovePiece(piece);
+                remove.execute();
+            }
         } catch (Exception e){
             System.out.println("NullPointerException when trying to REMOVE the piece at frame: " + currentFrame);
-        }
-    }
-
-    private void hideImage(BasicPiece piece) {
-        if (currentMap != null) {
-            if (piece != null) {
-                removePiece(piece);
-                currentMap.repaint();
-            }
         }
     }
 
@@ -650,7 +631,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             //System.out.println("PIECES CREATION END");
         }
     }
-
 
     public void getImages(String path, String die, int result){
         diceImages = new HashMap<>();
@@ -896,6 +876,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     public class DelayedActionButton extends JButton {
         private boolean mouseButtonPressed = false;
         private ActionListener delayedActionListener;
+        private boolean stopSound = false;
 
         public DelayedActionButton(String buttonText, ActionListener delayedActionListener) {
             super();
@@ -913,9 +894,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     //System.out.println("isImageVisible: " + isImageVisible + " / isAnimationInProgress: " + isAnimationInProgress);
                     super.mousePressed(e);
                     mouseButtonPressed = true;
-                    if (!isImageVisible && !isAnimationInProgress) { // doesn't execute when pressed to hide the dices (dice images are still visible)
+                    if (!isImageVisible && !isAnimationInProgress && isEnabled()) { // doesn't execute when pressed to hide the dices (dice images are still visible)
                         setCursor(dieCursor);
-                        playSounds(shakingDiceAudioData);
+                        stopSound = false;
+                        playSounds(shakingDiceAudioData, stopSound);
                         mouseBiasFactor = new int[NUMBER_OF_DICE]; // We'll the number of factors correspondent to the number of dice;
                         Arrays.fill(mouseBiasFactor, 1);
                         final int[] counter = new int[]{0}; // Use of single element array in order to be able to change it inside runnable.
@@ -955,7 +937,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     super.mouseReleased(e);
                     setCursor(Cursor.getDefaultCursor());
                     if (mouseButtonPressed && isEnabled()) {
-                        shouldStopFlag = true;
+                        stopSound = true;
                         if (timer != null) {
                             System.out.println("Before INTERRUPTING button timer thread number " + buttonTimerCounter);
                             buttonTimerCounter++;
