@@ -22,7 +22,6 @@ import javax.sound.sampled.Clip;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
-import java.awt.image.BufferedImage;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.io.*;
@@ -142,16 +141,18 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         // GET RESOURCES
         loadSounds(); // Preloads sounds for dices
 
-        URL iconURL = null;
+        // set icon for shuffling
+        /*URL iconURL = null;
         try {
             iconURL = dataArchive.getURL("Cursor/DieCursor.png");
             //System.out.println("icon URL: " + iconURL);
             BufferedImage dieCursorImage = ImageIO.read(iconURL);
             dieCursor = Toolkit.getDefaultToolkit().createCustomCursor(dieCursorImage, new Point(0,0), "Custom Die Cursor");
+            ImageIcon icon = new ImageIcon(iconURL);
         } catch (IOException e) {
             System.out.println("Unable to load Icon image.");
             e.printStackTrace();
-        }
+        }*/
 
         // LOAD FIRST SET OF IMAGES
         DrawDiceFolders();
@@ -167,13 +168,21 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         if (parent instanceof GameModule) {
             gameModule = (GameModule) parent;
             // CREATE BUTTONS
-            oneDieButton = new DelayedActionButton("Roll Die", new ActionListener() {
+            URL iconURL = null;
+            try {
+                iconURL = dataArchive.getURL("Cursor/DieCursor.png");
+            } catch (IOException e){
+
+            }
+            ImageIcon icon = new ImageIcon(iconURL);
+            oneDieButton = new DelayedActionButton("Roll Die", icon, new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     executeRoll(1);
                 }
             });
-            twoDiceButton = new DelayedActionButton("Roll Dice", new ActionListener() {
+
+            twoDiceButton = new DelayedActionButton("Roll Dice", icon, new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     executeRoll(2);
@@ -907,8 +916,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         private boolean mouseButtonPressed = false;
         private ActionListener delayedActionListener;
 
-        public DelayedActionButton(String buttonText, ActionListener delayedActionListener) {
-            super();
+        public DelayedActionButton(String buttonText, Icon icon, ActionListener delayedActionListener) {
+            super(icon);
             this.delayedActionListener = delayedActionListener;
             this.setText(buttonText);
             setupMouseListener();
@@ -924,7 +933,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     super.mousePressed(e);
                     mouseButtonPressed = true;
                     if (!isAnimationInProgress && isEnabled()) { // doesn't execute when pressed to hide the dices (dice images are still visible)
-                        setCursor(dieCursor);
+                        //setCursor(dieCursor);
                         if (isShuffleSoundOn)
                             playSounds(shakingDiceAudioData);
                         mouseBiasFactor = new int[NUMBER_OF_DICE]; // We'll the number of factors correspondent to the number of dice;
