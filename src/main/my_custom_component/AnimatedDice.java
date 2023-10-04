@@ -50,6 +50,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final String TWO_DICE_BUTTON_SETTINGS = "twoDiceButtonSettings";
     private final String BUTTONS_INDEX_SETTINGS = "buttonsIndexSettings";
     private final String DICE_ON_SCREEN_DURATION_SETTINGS = "diceOnScreenDurationSettings";
+    private final String SHUFFLE_SOUND_SETTINGS = "shuggleSoundSettings";
+    private final String DICE_SOUND_SETTINGS = "diceSoundSettings";
     private int dicePositionSettings;
     private int MAX_HORIZONTAL_OFFSET = 0;
     private int IMAGE_SIZE = 250;
@@ -66,6 +68,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private long imageDelay; // The number of MILLISECONDS between the display actions.
     private int currentFrame;
     private int frameRate;
+    private boolean isShuffleSoundOn;
+    private boolean isDiceSoundOn;
     private final int MAX_FRAME_RATE = 60;
     private final int MIN_FRAME_RATE = 35;
     private int onScreenDuration;
@@ -114,6 +118,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         onScreenDuration = 5;
         oneDieButtonVisible = true;
         twoDiceButtonVisible = true;
+        isShuffleSoundOn = true;
+        isDiceSoundOn = true;
         currentFrame = 0;
         hesitantDieProbability = 0.3; // must be multiplied by animations Ratio to ge the actual probability
         lastAnimationUsed = new HashMap<String, Object[]>(){{
@@ -324,6 +330,27 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     }
                 }
             });
+
+            // SOUNDS BUTTONS
+            // ...HIDE BUTTONS
+            final BooleanConfigurer shuffleSoundSettings = new BooleanConfigurer(SHUFFLE_SOUND_SETTINGS, "SHUFFLE SOUND", isShuffleSoundOn);
+            final BooleanConfigurer diceSoundSettings = new BooleanConfigurer(DICE_SOUND_SETTINGS, "DICE SOUND", isDiceSoundOn);
+            gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, shuffleSoundSettings);
+            gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, diceSoundSettings);
+            isShuffleSoundOn = (boolean) gameModule.getPrefs().getValue(SHUFFLE_SOUND_SETTINGS);
+            isDiceSoundOn = (boolean) gameModule.getPrefs().getValue(DICE_SOUND_SETTINGS);
+            shuffleSoundSettings.addPropertyChangeListener(new PropertyChangeListener() {
+                @Override
+                public void propertyChange(PropertyChangeEvent evt){
+                    isShuffleSoundOn = (boolean) gameModule.getPrefs().getValue(SHUFFLE_SOUND_SETTINGS);
+                };
+            });
+            diceSoundSettings.addPropertyChangeListener(new PropertyChangeListener() {
+                @Override
+                public void propertyChange(PropertyChangeEvent evt){
+                    isDiceSoundOn = (boolean) gameModule.getPrefs().getValue(DICE_SOUND_SETTINGS);
+                };
+            });
         }
     }
 
@@ -438,10 +465,12 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         scheduler = Executors.newSingleThreadScheduledExecutor();
 
         // START SOUNDS
-        if (numberOfDice == 1)
-            playSounds(dieAudioData);
-        else
-            playSounds(diceAudioData);
+        if (isDiceSoundOn) {
+            if (numberOfDice == 1)
+                playSounds(dieAudioData);
+            else
+                playSounds(diceAudioData);
+        }
 
         // SET PARAMETERS
         imageDelay = (1000/frameRate); // transform frame rate into milliseconds delay
@@ -487,9 +516,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         try{
             if (!scheduler.awaitTermination(1, TimeUnit.SECONDS)){
                 scheduler.shutdownNow();
-                /*synchronized (soundObject){
-                    soundObject.notify();
-                }*/
                 isAnimationInProgress = false;
             }
         } catch (InterruptedException ex){
@@ -547,7 +573,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
         if (currentMap != null){
             if (currentFrame == (whiteDieAnimationLength >= redDieAnimationLength ? whiteDieAnimationLength : redDieAnimationLength)) {
-                //System.out.println("N10");
                 synchronized (soundObject){
                     soundObject.notify();
                 }
@@ -900,7 +925,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     mouseButtonPressed = true;
                     if (!isAnimationInProgress && isEnabled()) { // doesn't execute when pressed to hide the dices (dice images are still visible)
                         setCursor(dieCursor);
-                        playSounds(shakingDiceAudioData);
+                        if (isShuffleSoundOn)
+                            playSounds(shakingDiceAudioData);
                         mouseBiasFactor = new int[NUMBER_OF_DICE]; // We'll the number of factors correspondent to the number of dice;
                         Arrays.fill(mouseBiasFactor, 1);
                         final int[] counter = new int[]{0}; // Use of single element array in order to be able to change it inside runnable.
@@ -908,7 +934,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         final long startTime = System.currentTimeMillis();
                         timer = new java.util.Timer();
                         JButton button = (JButton) e.getSource();
-                        Color originalColor = button.getBackground();
+                        Color originalColor = new Color(238,238,238);
 
                         timer.schedule(new TimerTask() {
                             long colorCounter = 10;
@@ -922,7 +948,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                                 } else {
                                     if (elapsedTime > colorCounter) {
                                         if (button.getBackground() == originalColor)
-                                            button.setBackground(Color.RED);
+                                            button.setBackground(Color.YELLOW);
                                         else
                                             button.setBackground(originalColor);
                                         colorCounter += 100;
@@ -949,6 +975,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 public void mouseReleased(MouseEvent e) {
                     super.mouseReleased(e);
                     setCursor(Cursor.getDefaultCursor());
+                    Color originalColor = new Color(238,238,238);
+                    JButton button = (JButton) e.getSource();
+                    button.setBackground(originalColor);
+
                     if (mouseButtonPressed && isEnabled()) {
                         synchronized (soundObject){
                             soundObject.notify();
