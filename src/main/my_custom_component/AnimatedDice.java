@@ -26,7 +26,6 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.io.*;
 import java.net.URL;
-import java.util.List;
 import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -75,9 +74,12 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final int MAX_ON_SCREEN_DURATION = 1000;
     private final int MIN_ON_SCREEN_DURATION = 0;
     private ScheduledExecutorService scheduler; // Controls the frame rate of the displayed images
-    private List<Image> images; // to be fed with the dice images that will be drawn on the pieces
-    private HashMap<String, HashMap<Integer, ArrayList<Image>>> preloadedImages; // set of preloaded images for each die and each result on the form: "Red": 6: List of images
-    private java.util.Map<String, Image[]> diceImages;
+    //private List<Image> images; // to be fed with the dice images that will be drawn on the pieces
+    private HashMap<String, HashMap<Integer, ArrayList<Image>>> imagesCache1; // set of preloaded images for each die and each result on the form: "Red": 6: List of images
+    private HashMap<String, HashMap<Integer, ArrayList<Image>>> imagesCache2;
+    private boolean isFeedingCache1;
+    private boolean isFeedingCache2;
+    private boolean oddRound = true;
     private int[] lastDiceImageFolderIndexes = new int[]{0,0}; // Keeps the last two dice image folders indexes stored to prevent immediate repetition of same animation
     private int lastNumberOfDiceRolled = 1;
     private HashMap<Integer, HashMap<Integer, ArrayList<Integer>>> redHesitantDieFolderBuilder; //Keep data taken from a txt file to reproduce the folder names for hesitant dice. Key: Animation number / Key: die result / value: rejected die value (middle number in folder name)
@@ -86,7 +88,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private double hesitantDieProbability;
     private final int NUMBER_OF_DIE_ANIMATIONS = 27; // ALTER THAT IF MORE ANIMATIONS ARE ADEED
     private final int NUMBER_OF_HESITANT_DIE_ANIMATIONS = 5;
-    private boolean feedingImages; // Checks if the thread for loading images is still running
+    //private boolean feedingImages; // Checks if the thread for loading images is still running
     private Object soundObject = new Object();
     private final Object feedingImagesLock = new Object(); // Lock to be used by threads to synchronize the feeding images process
     private byte[] dieAudioData;
@@ -126,12 +128,17 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             put("red", new Object[]{0, false});
         }};
         // INITIALIZES THE PRELOADED IMAGES HASHMAP
-        preloadedImages = new HashMap<>();
-        preloadedImages.put("white", new HashMap<>());
-        preloadedImages.put("red", new HashMap<>());
+        imagesCache1 = new HashMap<>();
+        imagesCache2 = new HashMap<>();
+        imagesCache1.put("white", new HashMap<>());
+        imagesCache1.put("red", new HashMap<>());
+        imagesCache2.put("white", new HashMap<>());
+        imagesCache2.put("red", new HashMap<>());
         for (int i = 1; i <= NUMBER_OF_SIDES; i++){
-            preloadedImages.get("white").put(i, new ArrayList<>());
-            preloadedImages.get("red").put(i, new ArrayList<>());
+            imagesCache1.get("white").put(i, new ArrayList<>());
+            imagesCache1.get("red").put(i, new ArrayList<>());
+            imagesCache2.get("white").put(i, new ArrayList<>());
+            imagesCache2.get("red").put(i, new ArrayList<>());
         }
 
         // CREATE THE ARRAY INDICATING WHAT FOLDERS BRING HESITANT DIE ANIMATIONS
@@ -155,7 +162,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }*/
 
         // LOAD FIRST SET OF IMAGES
-        DrawDiceFolders();
+        DrawDiceFolders(imagesCache1);
+        DrawDiceFolders(imagesCache2);
     }
 
     public static void main(String[] args) {
@@ -452,26 +460,38 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         twoDiceButton.setEnabled(false);
 
         removeLastFrames();
-
+        System.out.println("BEFORE CREATING PIECES -> CACHE1 SIZE for RESULT 1: " + imagesCache1.get("white").get(1).size());
         // ROLL DICE AND CREATE PIECES
         int[] results = RollDices (numberOfDice, NUMBER_OF_SIDES);
         pieces = new HashMap<>();
         if (numberOfDice == 1) {
-            createPieces("white", results[0]);
+            createPieces("white", results[0], oddRound? imagesCache1 : imagesCache2);
         } else if (numberOfDice == 2){
-            createPieces("red", results[0]);
-            createPieces("white", results[1]);
+            createPieces("red", results[0], oddRound? imagesCache1 : imagesCache2);
+            createPieces("white", results[1], oddRound? imagesCache1 : imagesCache2);
         }
 
         // START PRELOAD OF NEXT SET OF IMAGES
-        feedingImages = true;
+        //feedingImages = true;
+        // since we finished using the current Cache for creating pieces, we can begin to feed it again
+        System.out.println("ROUND: " + (oddRound? "odd" : "even"));
+        if (oddRound)
+            isFeedingCache1 = true;
+        else
+            isFeedingCache2 = true;
+        System.out.println("BEFORE FEEDING -> isFeedingCache1 set to: " + isFeedingCache1 + " //// isFeedingCache2 set to: " + isFeedingCache2);
         try{
             new Thread(() -> {
-                DrawDiceFolders(); // Set feedingImages to FALSE after ending feed
-                synchronized (feedingImagesLock){
+                HashMap<String, HashMap<Integer, ArrayList<Image>>> cacheUsed = oddRound ? imagesCache1 : imagesCache2;
+                DrawDiceFolders(cacheUsed); // Set feedingImages to FALSE after ending feed
+                synchronized (feedingImagesLock){ // REMOVE????????????????????????????
                     feedingImagesLock.notify();
                 }
-                drawDiceFoderThreadCounter ++;
+                if (cacheUsed == imagesCache1)
+                    isFeedingCache1 = false;
+                else
+                    isFeedingCache2 = false;
+                System.out.println("AFTER FEEDING -> isFeedingCache1 set to: " + isFeedingCache1 + " //// isFeedingCache2 set to: " + isFeedingCache2);
                 Thread.currentThread().interrupt();
             }).start();
         } catch (Exception e){
@@ -479,6 +499,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             e.printStackTrace();
         }
         scheduler = Executors.newSingleThreadScheduledExecutor();
+
+        oddRound = !oddRound; // We change round so that in the next execution, the other cache will be used and fed.
 
         // START SOUNDS
         if (isDiceSoundOn) {
@@ -536,11 +558,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             }
         } catch (InterruptedException ex){
             System.out.println("Unable to shut down Animation scheduler");
-            scheduler.shutdownNow();
-            Thread.currentThread().interrupt();
+            //scheduler.shutdownNow();
+            //Thread.currentThread().interrupt();
         }
         // CLEANS PIECES AND RESET BUTTONS
-
         final BasicPiece lastRed = pieces.containsKey("red") ? pieces.get("red")[pieces.get("red").length - 1] : null;
         final BasicPiece lastWhite = pieces.get("white")[pieces.get("white").length - 1];
         try { // Remove last piece still visible if not already done after the onScreenDuration time value.
@@ -570,7 +591,11 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         }
                     }
                 }
-                while (feedingImages) {
+                // If round is odd, ImagesCache1 has been used to create pieces and, after that, it began being fed. ImagesCache2 was fed when round was even
+                // and should have been finished by now. If not, the thread waits and prevents buttons to be enabled, avoiding a new round.
+                System.out.println("BEFORE ENABLING BUTTONS -> ROUND : " + (oddRound? "odd" : "even"));
+                System.out.println("BEFORE ENABLING BUTTONS -> isFeedingCache1 set to: " + isFeedingCache1 + " //// isFeedingCache2 set to: " + isFeedingCache2);
+                while (oddRound? isFeedingCache1 : isFeedingCache2) {
                     Thread.yield();
                 }
                 oneDieButton.setEnabled(true);
@@ -578,7 +603,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 currentMap.getView().repaint();
                 Thread.currentThread().interrupt();
             }).start();
-
         } catch (Exception e) {
             System.out.println("Inside executeRoll. Exception while Resetting Roll Dice Button.");
             e.printStackTrace();
@@ -586,7 +610,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     }
 
     private void displayImage(int x, int y, int whiteDieAnimationLength, int redDieAnimationLength, int diePosition){
-
         if (currentMap != null){
             if (currentFrame == (whiteDieAnimationLength >= redDieAnimationLength ? whiteDieAnimationLength : redDieAnimationLength)) {
                 synchronized (soundObject){
@@ -594,12 +617,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 }
                 stopImageDisplay();
                 currentFrame = 0;
-                isImageVisible = true; // can only set this to true after last image is displayed, since when the button is pressed again, the behavior depends on that variable.
-
-                //executeRoll(2); // AUTO ROLL FOR TESTS. REMOVE LATER
+                isImageVisible = true; // can only set this to true after last image is displayed, since when the button is pressed again, the behavior depends on that variable
                 return;
             }
-            //System.out.println("N4");
             int xCoordinate = x;
             int yCoordinate = y;
                 if (redDieAnimationLength == 0) {
@@ -643,10 +663,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
     private synchronized void removePiece(BasicPiece piece) {
         try {
-            System.out.println("PIECE BEFORE REMOVAL: " + piece);
-            System.out.println("IS PIECE NULL? " + (piece == null? "Yes" : "No"));
+            //System.out.println("PIECE BEFORE REMOVAL: " + piece);
+            //System.out.println("IS PIECE NULL? " + (piece == null? "Yes" : "No"));
             if (piece != null) {
-                System.out.println("Inside removal block");
+                //System.out.println("Inside removal block");
                 Command remove = new RemovePiece(piece);
                 remove.execute();
             }
@@ -655,14 +675,16 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
-    private void createPieces(String die, int result){
-        int numberOfPieces = preloadedImages.get(die).get(result).size();
-        pieces.put(die, new BasicPiece[numberOfPieces]);
+    private void createPieces(String die, int result, HashMap<String, HashMap<Integer, ArrayList<Image>>> cache){
+        // In odd rounds we use Cache1 to create the pieces, while Cache2 is being fed.
+        int numberOfPieces = cache.get(die).get(result).size();
+        System.out.println("CREATE PIECES -> NUMBER OF IMAGES IN CACHE: " + numberOfPieces);
+        pieces.put(die, new BasicPiece[numberOfPieces]); // resets the pieces list
         //System.out.println("PIECES CREATION START");
         for (int i = 0; i < numberOfPieces; i++){
             final int index = i; // make index final, so it can be accessed from the inner class
             BasicPiece piece = new BasicPiece() {
-                private final Image image = preloadedImages.get(die).get(result).get(index);
+                private final Image image = cache.get(die).get(result).get(index);
                 @Override
                 public void draw(Graphics g, int x, int y, Component obs, double zoom) {
                     super.draw(g, x, y, obs, zoom);
@@ -676,9 +698,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
-    public void getImages(String path, String die, int result){
-        diceImages = new HashMap<>();
-        images = new ArrayList<>();
+    public void getImages(String path, HashMap<String, HashMap<Integer, ArrayList<Image>>> cache, String die, int result){
         int imageNumber = 0;
         Random random = new Random();
         //System.out.println("Path: " + path);
@@ -693,7 +713,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     //System.out.println("Image: " + image);
                     //System.out.println("Before adding image to preloadedImages");
                     if (image != null)
-                        preloadedImages.get(die).get(result).add(image);
+                            cache.get(die).get(result).add(image);
                     //System.out.println("READING IMAGE AFTER");
                     imageNumber++;
                 } catch (IOException e){
@@ -707,12 +727,13 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
-    private void DrawDiceFolders(){
+    private void DrawDiceFolders(HashMap<String, HashMap<Integer, ArrayList<Image>>> cache){
         System.out.println("BEGIN NEW DRAW");
         // Clears the previously preloaded images
+        // If round is odd, clears imagesCache1, since it was used to create the pieces in this round before the call to this method.
         for (int i = 1; i <= NUMBER_OF_SIDES; i++){
-            preloadedImages.get("white").get(i).clear();
-            preloadedImages.get("red").get(i).clear();
+                cache.get("white").get(i).clear();
+                cache.get("red").get(i).clear();
         }
         System.gc();
         // RECOVER THE LAST ANIMATION VARIANT FOR EACH COLOR. O MEANS NONE.
@@ -749,7 +770,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         .append(animVariation.get(random.nextInt(animVariation.size()))).append("_").append(i).append("/");
                 //System.out.println("HESITANT: PATH BEFORE GET IMAGES");
                 //System.out.println(path);
-                getImages(path.toString(), (hesitantDie == 0) ? "white" : "red", i);
+                getImages(path.toString(), cache, (hesitantDie == 0) ? "white" : "red", i);
             }
             if (hesitantDie == 0) {
                 lastAnimationUsed.put("white", new Object[]{animNumber, true});
@@ -775,7 +796,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
                 //System.out.println("RED BEFORE GET IMAGES");
                 //System.out.println(path);
-                getImages(path.toString(), "red", i);
+                getImages(path.toString(), cache, "red", i);
             }
             lastAnimationUsed.put("red", new Object[]{redAnimNumber, false});
         }
@@ -787,12 +808,12 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
                 //System.out.println("WHITE BEFORE GET IMAGES");
                 //System.out.println(path);
-                getImages(path.toString(), "white", i);
+                getImages(path.toString(), cache, "white", i);
             }
             lastAnimationUsed.put("white", new Object[]{whiteAnimNumber, false});
         }
 
-        feedingImages = false; // Set to true in CreatePieces, after creation is finished and new feed from disk begins
+        //feedingImages = false; // Set to true in CreatePieces, after creation is finished and new feed from disk begins
         System.out.println("FINISHED DRAW");
     }
 
@@ -944,7 +965,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         mouseBiasFactor = new int[NUMBER_OF_DICE]; // We'll the number of factors correspondent to the number of dice;
                         Arrays.fill(mouseBiasFactor, 1);
                         final int[] counter = new int[]{0}; // Use of single element array in order to be able to change it inside runnable.
-                        System.out.println("Before STARTING button timer number " + buttonTimerCounter);
                         final long startTime = System.currentTimeMillis();
                         timer = new java.util.Timer();
                         JButton button = (JButton) e.getSource();
