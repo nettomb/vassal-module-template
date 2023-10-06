@@ -106,6 +106,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private int buttonTimerCounter = 0;
     private int buttonResetThreadCouter = 0;
     private int drawDiceFoderThreadCounter = 0;
+    private HashMap<String, HashMap< String, HashMap<Integer, ArrayList<Image>>>> cachesRegistry = new HashMap<>();
     // TEST CODE END
 
     public AnimatedDice(){
@@ -160,6 +161,11 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             System.out.println("Unable to load Icon image.");
             e.printStackTrace();
         }*/
+
+        // TEST CODE START
+        cachesRegistry.put("cache1", imagesCache1);
+        cachesRegistry.put("cache2", imagesCache2);
+        // TEST CODE END
 
         // LOAD FIRST SET OF IMAGES
         DrawDiceFolders(imagesCache1);
@@ -460,7 +466,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         twoDiceButton.setEnabled(false);
 
         removeLastFrames();
-        System.out.println("BEFORE CREATING PIECES -> CACHE1 SIZE for RESULT 1: " + imagesCache1.get("white").get(1).size());
         // ROLL DICE AND CREATE PIECES
         int[] results = RollDices (numberOfDice, NUMBER_OF_SIDES);
         pieces = new HashMap<>();
@@ -499,8 +504,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             e.printStackTrace();
         }
         scheduler = Executors.newSingleThreadScheduledExecutor();
-
-        oddRound = !oddRound; // We change round so that in the next execution, the other cache will be used and fed.
 
         // START SOUNDS
         if (isDiceSoundOn) {
@@ -555,6 +558,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             if (!scheduler.awaitTermination(1, TimeUnit.SECONDS)){
                 scheduler.shutdownNow();
                 isAnimationInProgress = false;
+                oddRound = !oddRound; // We change round so that in the next execution, the other cache will be used and fed.
             }
         } catch (InterruptedException ex){
             System.out.println("Unable to shut down Animation scheduler");
@@ -729,6 +733,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
     private void DrawDiceFolders(HashMap<String, HashMap<Integer, ArrayList<Image>>> cache){
         System.out.println("BEGIN NEW DRAW");
+        System.out.println("CACHE USED: " + ((cache.equals(cachesRegistry.get("cache1")))? "CACHE1" : "CACHE2"));
         // Clears the previously preloaded images
         // If round is odd, clears imagesCache1, since it was used to create the pieces in this round before the call to this method.
         for (int i = 1; i <= NUMBER_OF_SIDES; i++){
