@@ -27,6 +27,7 @@ import java.beans.PropertyChangeListener;
 import java.io.*;
 import java.net.URL;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -94,6 +95,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private byte[] dieAudioData;
     private byte[] diceAudioData;
     private byte[] shakingDiceAudioData;
+    private CountDownLatch latch = new CountDownLatch(1);
     private Cursor dieCursor;
     private boolean actionInProgress = false;
     private HashMap<String, BasicPiece[]> pieces; // pieces are added to this array to be displayed in order
@@ -512,7 +514,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             else
                 playSounds(diceAudioData);
         }
-
         // SET PARAMETERS
         imageDelay = (1000/frameRate); // transform frame rate into milliseconds delay
 
@@ -599,9 +600,11 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 // and should have been finished by now. If not, the thread waits and prevents buttons to be enabled, avoiding a new round.
                 System.out.println("BEFORE ENABLING BUTTONS -> ROUND : " + (oddRound? "odd" : "even"));
                 System.out.println("BEFORE ENABLING BUTTONS -> isFeedingCache1 set to: " + isFeedingCache1 + " //// isFeedingCache2 set to: " + isFeedingCache2);
-                while (oddRound? isFeedingCache1 : isFeedingCache2) {
+                while (oddRound? isFeedingCache1 : isFeedingCache2) { // CHECKS TO SEE IF THE CACHE TO BE USED IS READY AND ENABLE BUTTONS IF SO.
+                    System.out.println("WAITING FOR CACHES! CACHE1 FEEDING: " + isFeedingCache1 + " / CACHE2 FEEDING: " + isFeedingCache2);
                     Thread.yield();
                 }
+                System.out.println("AFTER WAITING WHILE LOOP! CACHE1 FEEDING: " + isFeedingCache1 + " / CACHE2 FEEDING: " + isFeedingCache2);
                 oneDieButton.setEnabled(true);
                 twoDiceButton.setEnabled(true);
                 currentMap.getView().repaint();
@@ -1013,12 +1016,16 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 @Override
                 public void mouseReleased(MouseEvent e) {
                     super.mouseReleased(e);
-                    setCursor(Cursor.getDefaultCursor());
+                    //setCursor(Cursor.getDefaultCursor());
                     Color originalColor = new Color(238,238,238);
                     JButton button = (JButton) e.getSource();
-                    button.setBackground(originalColor);
 
                     if (mouseButtonPressed && isEnabled()) {
+                        try{ // Necessary to allow sound to begin and notify to work properly
+                            Thread.sleep(100);
+                        } catch (InterruptedException a){
+
+                        }
                         synchronized (soundObject){
                             soundObject.notify();
                         }
@@ -1036,6 +1043,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                             }
                         }
                     }
+                    button.setBackground(originalColor);
                     mouseButtonPressed = false;
                 }
             });
