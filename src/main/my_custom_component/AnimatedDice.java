@@ -2,13 +2,12 @@ package my_custom_component;
 
 import VASSAL.build.Buildable;
 import VASSAL.build.GameModule;
-import VASSAL.build.module.Chatter;
+import VASSAL.build.module.GlobalOptions;
 import VASSAL.build.module.Map;
 import VASSAL.build.module.ModuleExtension;
 import VASSAL.build.module.documentation.HelpFile;
 import VASSAL.command.Command;
 import VASSAL.command.CommandEncoder;
-import VASSAL.command.NullCommand;
 import VASSAL.command.RemovePiece;
 import VASSAL.configure.BooleanConfigurer;
 import VASSAL.configure.IntConfigurer;
@@ -36,6 +35,7 @@ import java.util.concurrent.TimeUnit;
 public final class AnimatedDice extends ModuleExtension implements CommandEncoder, Buildable{
     private GameModule gameModule;
     private DataArchive dataArchive;
+    private String ICONS_IMAGES_PATH = "Cursor/";
     private String RED_DIE_FOLDER_PATH = "DiceImages/RED DIE/";
     private String HESITANT_RED_DIE_FOLDER_PATH = "DiceImages/HRED DIE/";
     private String WHITE_DIE_FOLDER_PATH = "DiceImages/WHITE DIE/";
@@ -186,7 +186,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             // CREATE BUTTONS
             URL iconURL = null;
             try {
-                iconURL = dataArchive.getURL("Cursor/RollDieButton.png");
+                iconURL = dataArchive.getURL(ICONS_IMAGES_PATH + "RollDieButton.png");
             } catch (IOException e){
                 e.printStackTrace();
             }
@@ -199,7 +199,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             });
             oneDieButton.setMargin(new Insets(0,3,0,3));
             try {
-                iconURL = dataArchive.getURL("Cursor/RollDiceButton.png");
+                iconURL = dataArchive.getURL(ICONS_IMAGES_PATH + "RollDiceButton.png");
             } catch (IOException e){
                 e.printStackTrace();
             }
@@ -474,8 +474,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         if (numberOfDice == 1) {
             createPieces("white", results[0], oddRound? imagesCache1 : imagesCache2);
         } else if (numberOfDice == 2){
-            createPieces("red", results[0], oddRound? imagesCache1 : imagesCache2);
-            createPieces("white", results[1], oddRound? imagesCache1 : imagesCache2);
+            createPieces("red", results[1], oddRound? imagesCache1 : imagesCache2);
+            createPieces("white", results[0], oddRound? imagesCache1 : imagesCache2);
         }
 
         // START PRELOAD OF NEXT SET OF IMAGES
@@ -533,7 +533,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         int diePosition = new Random().nextInt(numberOfDice); // always 0 if only one die
 
         // BEGINS THE ANIMATION
-        Runnable task = () -> displayImage(x,y,whiteDieAnimationLength,redDieAnimationLength, diePosition);
+        Runnable task = () -> displayImage(x,y,whiteDieAnimationLength,redDieAnimationLength, diePosition, results);
         scheduler.scheduleAtFixedRate(task, 0, imageDelay, TimeUnit.MILLISECONDS);
     }
 
@@ -552,13 +552,15 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
-    public void stopImageDisplay(){
+    public void stopAnimation(int[] results){
         // ENDS ANIMATION
         scheduler.shutdown();
         try{
             if (!scheduler.awaitTermination(1, TimeUnit.SECONDS)){
                 scheduler.shutdownNow();
                 isAnimationInProgress = false;
+                currentFrame = 0;
+                isImageVisible = true; // can only set this to true after last image is displayed, since when the button is pressed again, the behavior depends on that variable
                 oddRound = !oddRound; // We change round so that in the next execution, the other cache will be used and fed.
             }
         } catch (InterruptedException ex){
@@ -607,6 +609,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 System.out.println("AFTER WAITING WHILE LOOP! CACHE1 FEEDING: " + isFeedingCache1 + " / CACHE2 FEEDING: " + isFeedingCache2);
                 oneDieButton.setEnabled(true);
                 twoDiceButton.setEnabled(true);
+                sendResults(results.length, results);
                 currentMap.getView().repaint();
                 Thread.currentThread().interrupt();
             }).start();
@@ -616,15 +619,13 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
-    private void displayImage(int x, int y, int whiteDieAnimationLength, int redDieAnimationLength, int diePosition){
+    private void displayImage(int x, int y, int whiteDieAnimationLength, int redDieAnimationLength, int diePosition, int[] results){
         if (currentMap != null){
             if (currentFrame == (whiteDieAnimationLength >= redDieAnimationLength ? whiteDieAnimationLength : redDieAnimationLength)) {
                 synchronized (soundObject){
                     soundObject.notify();
                 }
-                stopImageDisplay();
-                currentFrame = 0;
-                isImageVisible = true; // can only set this to true after last image is displayed, since when the button is pressed again, the behavior depends on that variable
+                stopAnimation(results);
                 return;
             }
             int xCoordinate = x;
@@ -824,6 +825,35 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         //feedingImages = false; // Set to true in CreatePieces, after creation is finished and new feed from disk begins
         System.out.println("FINISHED DRAW");
     }
+    private void sendResults(int numberOfDice, int[] results){
+        //PlayerRoster playerRoster = gameModule.getPlayerRoster();
+        //PlayerRoster.PlayerInfo[] currentPlayer = playerRoster.getPlayers();
+        String playerId = GlobalOptions.getInstance().getPlayerId();
+        System.out.println("HTML: " + GlobalOptions.getInstance().chatterHTMLSupport() + " / HTML SETTINGS: " + GlobalOptions.getInstance().chatterHTMLSetting());
+        try {
+            String redDie = "";
+            if (results.length == 2){
+                URL redDieIconURL = dataArchive.getURL(ICONS_IMAGES_PATH + "red" + results[1] + ".png");
+                redDie = "<img src='" + redDieIconURL + "' width='25' height='25' style='vertical-align: middle;>";
+            }
+            URL whiteDieIconURL = dataArchive.getURL(ICONS_IMAGES_PATH + "white" + results[0] + ".png");
+            String whiteDie = "<img src='" + whiteDieIconURL + "' width='25' height='25' style='vertical-align: middle;'>";
+            StringBuilder report = new StringBuilder();
+            report.append("* <b>" + playerId + "</b> " + whiteDie + " " + redDie);
+
+            gameModule.getChatter().send(report.toString());
+            String s = "/d6 New string";
+
+        } catch (IOException e){
+            e.printStackTrace();
+        }
+
+        // Send the formatted message through Chatter
+        //gameModule.getChatter().send(formattedMessage);
+        //Command c = report.length() == 0 ? new NullCommand() : new Chatter.DisplayText(GameModule.getGameModule().getChatter(), report.toString());
+        //((Command)c).execute();
+        //GameModule.getGameModule().sendAndLog(c);
+    }
 
     private int[] RollDices (int numberOfDice, int numberOfSides){
         int[] unalteredRolls = DR(numberOfDice,numberOfSides);
@@ -834,26 +864,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             if (alteredRolls[i] > 6)
                 alteredRolls[i] = alteredRolls[i] - 6;
         }
-
-        StringBuilder report = new StringBuilder();
-
-        for (int j = 0; j < numberOfDice; ++j){
-            report.append(unalteredRolls[j]);
-            if (j < numberOfDice - 1)
-                report.append(", ");
-        }
-
-        report.append("Altered Rolls: ");
-        for (int k = 0; k < numberOfDice; ++k){
-            report.append(alteredRolls[k]);
-            if (k < numberOfDice - 1)
-                report.append(", ");
-        }
-
-        Command c = report.length() == 0 ? new NullCommand() : new Chatter.DisplayText(GameModule.getGameModule().getChatter(), report.toString());
-        ((Command)c).execute();
-        GameModule.getGameModule().sendAndLog(c);
-
         return alteredRolls;
     }
     protected int[] DR(int nDice, int nSides) {
@@ -1028,6 +1038,11 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         }
                         synchronized (soundObject){
                             soundObject.notify();
+                        }
+                        try{ // Necessary to allow sound to begin and notify to work properly
+                            Thread.sleep(100);
+                        } catch (InterruptedException a){
+
                         }
                         if (timer != null) {
                             timer.cancel();
