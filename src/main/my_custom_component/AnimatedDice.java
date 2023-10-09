@@ -67,6 +67,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private long imageDelay; // The number of MILLISECONDS between the display actions.
     private int currentFrame;
     private int frameRate;
+    private final Object animationLock = new Object();
     private boolean isShuffleSoundOn;
     private boolean isDiceSoundOn;
     private final int MAX_FRAME_RATE = 60;
@@ -620,43 +621,45 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     }
 
     private void displayImage(int x, int y, int whiteDieAnimationLength, int redDieAnimationLength, int diePosition, int[] results){
-        if (currentMap != null){
-            if (currentFrame == (whiteDieAnimationLength >= redDieAnimationLength ? whiteDieAnimationLength : redDieAnimationLength)) {
-                synchronized (soundObject){
-                    soundObject.notify();
+        synchronized (animationLock) {
+            if (currentMap != null) {
+                if (currentFrame == (whiteDieAnimationLength >= redDieAnimationLength ? whiteDieAnimationLength : redDieAnimationLength)) {
+                    synchronized (soundObject) {
+                        soundObject.notify();
+                    }
+                    stopAnimation(results);
+                    return;
                 }
-                stopAnimation(results);
-                return;
-            }
-            int xCoordinate = x;
-            int yCoordinate = y;
+                int xCoordinate = x;
+                int yCoordinate = y;
                 if (redDieAnimationLength == 0) {
-                            placePiece(pieces.get("white")[currentFrame], new Point(xCoordinate, yCoordinate));
-                        if (currentFrame > 1) {
-                                removePiece(pieces.get("white")[currentFrame - 1]);
-                        }
+                    placePiece(pieces.get("white")[currentFrame], new Point(xCoordinate, yCoordinate));
+                    if (currentFrame > 1) {
+                        removePiece(pieces.get("white")[currentFrame - 1]);
+                    }
                 } else if (redDieAnimationLength != 0) {
                     //System.out.println("N5");
                     //System.out.println("Current Frame: " + currentFrame + " and " + (diePosition == 1 ? "Red Animation length :" + redDieAnimationLength:"White Animation length :" + whiteDieAnimationLength));
                     if (currentFrame < (diePosition == 0 ? whiteDieAnimationLength : redDieAnimationLength)) {
                         //System.out.println("N6");
-                                placePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame], new Point(xCoordinate, yCoordinate));
-                            if (currentFrame > 1) {
-                                removePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame - 1]);
-                            }
+                        placePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame], new Point(xCoordinate, yCoordinate));
+                        if (currentFrame > 1) {
+                            removePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame - 1]);
+                        }
                     }
                     //System.out.println("N7");
                     //System.out.println("Current Frame: " + currentFrame + " and " + (diePosition == 0 ? "Red Animation length :" + redDieAnimationLength:"White Animation length :" + whiteDieAnimationLength));
                     if (currentFrame < (diePosition == 0 ? redDieAnimationLength : whiteDieAnimationLength)) {
                         //System.out.println("N8");
-                                placePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame], new Point(xCoordinate + IMAGE_SIZE, yCoordinate));
-                            if (currentFrame > 1) {
-                                removePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame - 1]);
-                            }
+                        placePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame], new Point(xCoordinate + IMAGE_SIZE, yCoordinate));
+                        if (currentFrame > 1) {
+                            removePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame - 1]);
+                        }
                     }
                 }
-            //System.out.println("N9");
-            currentFrame = (currentFrame + 1);
+                //System.out.println("N9");
+                currentFrame = (currentFrame + 1);
+            }
         }
     }
 
@@ -665,6 +668,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             if (piece != null)
                 currentMap.placeAt(piece, point);
         } catch (Exception e){
+            e.printStackTrace();
             System.out.println("NullPointerException when trying to PLACE the piece at frame: " + currentFrame);
         }
     }
@@ -679,6 +683,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 remove.execute();
             }
         } catch (Exception e){
+            e.printStackTrace();
             System.out.println("NullPointerException when trying to REMOVE the piece at frame: " + currentFrame);
         }
     }
@@ -827,7 +832,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     }
     private void sendResults(int numberOfDice, int[] results){
         //PlayerRoster playerRoster = gameModule.getPlayerRoster();
-        //PlayerRoster.PlayerInfo[] currentPlayer = playerRoster.getPlayers();
+        //PlayerRoster.PlayerInfo[] players = playerRoster.getPlayers();
+        //System.out.println("current Player: " + players.length);
         String playerId = GlobalOptions.getInstance().getPlayerId();
         System.out.println("HTML: " + GlobalOptions.getInstance().chatterHTMLSupport() + " / HTML SETTINGS: " + GlobalOptions.getInstance().chatterHTMLSetting());
         try {
