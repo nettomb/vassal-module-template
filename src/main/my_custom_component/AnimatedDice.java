@@ -6,6 +6,7 @@ import VASSAL.build.module.GlobalOptions;
 import VASSAL.build.module.Map;
 import VASSAL.build.module.ModuleExtension;
 import VASSAL.build.module.documentation.HelpFile;
+import VASSAL.build.module.properties.GlobalProperty;
 import VASSAL.command.Command;
 import VASSAL.command.CommandEncoder;
 import VASSAL.command.RemovePiece;
@@ -23,6 +24,7 @@ import java.awt.*;
 import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
+import java.beans.PropertyChangeSupport;
 import java.io.*;
 import java.net.URL;
 import java.util.*;
@@ -100,7 +102,11 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private Cursor dieCursor;
     private boolean actionInProgress = false;
     private HashMap<String, BasicPiece[]> pieces; // pieces are added to this array to be displayed in order
+    private int[] results;
+    private boolean thisCaller = false;
     private final Map currentMap;
+    GlobalPropertyWrapper diceRollCall = new GlobalPropertyWrapper(new GlobalProperty());
+
 
     // TEST CODE START
     private boolean testRunning = false;
@@ -152,19 +158,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         // GET RESOURCES
         loadSounds(); // Preloads sounds for dices
 
-        // set icon for shuffling
-        /*URL iconURL = null;
-        try {
-            iconURL = dataArchive.getURL("Cursor/DieCursor.png");
-            //System.out.println("icon URL: " + iconURL);
-            BufferedImage dieCursorImage = ImageIO.read(iconURL);
-            dieCursor = Toolkit.getDefaultToolkit().createCustomCursor(dieCursorImage, new Point(0,0), "Custom Die Cursor");
-            ImageIcon icon = new ImageIcon(iconURL);
-        } catch (IOException e) {
-            System.out.println("Unable to load Icon image.");
-            e.printStackTrace();
-        }*/
-
         // TEST CODE START
         cachesRegistry.put("cache1", imagesCache1);
         cachesRegistry.put("cache2", imagesCache2);
@@ -184,6 +177,27 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     public void addTo(Buildable parent) {
         if (parent instanceof GameModule) {
             gameModule = (GameModule) parent;
+
+            diceRollCall.addPropertyChangeListener(new PropertyChangeListener() {
+                @Override
+                public void propertyChange(PropertyChangeEvent evt){
+                    System.out.println("Inside property change");
+                    System.out.println("source: " + evt.getSource());
+                    if (!thisCaller) {
+                        String r = (String) diceRollCall.getPropertyValue();
+                        int[] tempResults = Arrays.stream(r.substring(1, r.length() - 1).split(", ")).mapToInt(Integer::parseInt).toArray();
+                        System.out.println("Results: " + tempResults[0] + " / " + (tempResults.length == 1 ? "" : tempResults[1]));
+                        if (oneDieButton.isEnabled() == true){
+                            results = tempResults;
+                            thisCaller = false; // so that the execute method knows that the animation was called from outside
+                            executeRoll(results.length == 1? 1 : 2);
+                        } else { // Maybe we have an animation running, so we'll print the result to the chat, but without running the animation and without changing the results int[] array that may be in use.
+                            sendResults(results.length == 1? 1 : 2, tempResults);
+                        }
+                    }
+                };
+            });
+
             // CREATE BUTTONS
             URL iconURL = null;
             try {
@@ -195,6 +209,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             oneDieButton = new DelayedActionButton("", icon, new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
+                    thisCaller = true; // establish that this player is calling the roll and not the opponent
                     executeRoll(1);
                 }
             });
@@ -208,11 +223,14 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             twoDiceButton = new DelayedActionButton("", icon, new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
+                    thisCaller = true;
                     executeRoll(2);
                 }
             });
             twoDiceButton.setMargin(new Insets(0,3,0,3));
 
+            // TEST CODE START
+            // Bot
             JButton testButton = new JButton("Test Button");
             ActionListener listener = new ActionListener() {
                 @Override
@@ -227,6 +245,17 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             };
             testButton.addActionListener(listener);
             gameModule.getToolBar().add(testButton);
+            //Global property test
+            JButton globalPropertyTestButton = new JButton("GP Test Button");
+            globalPropertyTestButton.addActionListener( new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    sendRolls();
+                }
+            });
+            gameModule.getToolBar().add(globalPropertyTestButton);
+
+            // TEST CODE END
 
             // ADD SETTINGS TO PREFERENCE WINDOW
             JToolBar toolBar = gameModule.getToolBar();
@@ -387,6 +416,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
+    // TEST CODE START
     private void testRoutine(){
         new Thread (() -> {
             Robot robot;
@@ -415,6 +445,33 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             Thread.currentThread().interrupt();
         }).start();
     }
+
+    private void sendRolls(){
+        new Thread (()-> {
+            int[] testResult1 = {2, 4};
+            int[] testResult2 = {1};
+            int[] testResult3 = {3, 6};
+            try {
+                System.out.println("PropertyValue: " + diceRollCall.getPropertyValue());
+
+                diceRollCall.setPropertyValue(Arrays.toString(testResult1));
+                Thread.sleep(5000);
+                diceRollCall.setPropertyValue(Arrays.toString(testResult2));
+                Thread.sleep(3000);
+                diceRollCall.setPropertyValue(Arrays.toString(testResult3));
+
+                diceRollCall.setPropertyValue(Arrays.toString(testResult1));
+
+                diceRollCall.setPropertyValue(Arrays.toString(testResult2));
+                ;
+
+                diceRollCall.setPropertyValue(Arrays.toString(testResult3));
+            } catch (InterruptedException e) {
+
+            }
+        }).start();
+    }
+    // TEST CODE END
 
     private void loadSounds(){
         try {
@@ -470,7 +527,12 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
         removeLastFrames();
         // ROLL DICE AND CREATE PIECES
-        int[] results = RollDices (numberOfDice, NUMBER_OF_SIDES);
+        // Only rolls the dice if the current player is who called the roll. If the opposing player called the roll, display the animation based on the results passed to the global property diceRollCall
+        if (thisCaller) {
+            results = RollDices(numberOfDice, NUMBER_OF_SIDES);
+            diceRollCall.setPropertyValue(Arrays.toString(results)); // sets the results Attribute which will trigger the propertyChange method playing the animation in the opponent computer
+        }
+
         pieces = new HashMap<>();
         if (numberOfDice == 1) {
             createPieces("white", results[0], oddRound? imagesCache1 : imagesCache2);
@@ -534,7 +596,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         int diePosition = new Random().nextInt(numberOfDice); // always 0 if only one die
 
         // BEGINS THE ANIMATION
-        Runnable task = () -> displayImage(x,y,whiteDieAnimationLength,redDieAnimationLength, diePosition, results);
+        Runnable task = () -> displayImage(x,y,whiteDieAnimationLength,redDieAnimationLength, diePosition);
         scheduler.scheduleAtFixedRate(task, 0, imageDelay, TimeUnit.MILLISECONDS);
     }
 
@@ -553,7 +615,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
-    public void stopAnimation(int[] results){
+    public void stopAnimation(){
         // ENDS ANIMATION
         scheduler.shutdown();
         try{
@@ -610,7 +672,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 System.out.println("AFTER WAITING WHILE LOOP! CACHE1 FEEDING: " + isFeedingCache1 + " / CACHE2 FEEDING: " + isFeedingCache2);
                 oneDieButton.setEnabled(true);
                 twoDiceButton.setEnabled(true);
-                sendResults(results.length, results);
+                if (thisCaller) // Will send results only if this instance has called the animation. Otherwise, the instance who called will send the results
+                    sendResults(results.length, results);
+                thisCaller = false; // resets the variable to false after using it. It is set to true when the Roll buttons are pressed
                 currentMap.getView().repaint();
                 Thread.currentThread().interrupt();
             }).start();
@@ -620,14 +684,14 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
-    private void displayImage(int x, int y, int whiteDieAnimationLength, int redDieAnimationLength, int diePosition, int[] results){
+    private void displayImage(int x, int y, int whiteDieAnimationLength, int redDieAnimationLength, int diePosition){
         synchronized (animationLock) {
             if (currentMap != null) {
                 if (currentFrame == (whiteDieAnimationLength >= redDieAnimationLength ? whiteDieAnimationLength : redDieAnimationLength)) {
                     synchronized (soundObject) {
                         soundObject.notify();
                     }
-                    stopAnimation(results);
+                    stopAnimation();
                     return;
                 }
                 int xCoordinate = x;
@@ -1068,6 +1132,36 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     mouseButtonPressed = false;
                 }
             });
+        }
+    }
+
+    public class GlobalPropertyWrapper {
+        private GlobalProperty globalProperty;
+        private PropertyChangeSupport propertyChangeSupport;
+
+        public GlobalPropertyWrapper(GlobalProperty globalProperty) {
+            this.globalProperty = globalProperty;
+            this.propertyChangeSupport = new PropertyChangeSupport(this);
+        }
+
+        public void setPropertyValue(String newValue) {
+            String oldValue = globalProperty.getPropertyValue();
+            globalProperty.setPropertyValue(newValue);
+            propertyChangeSupport.firePropertyChange("propertyValue", oldValue, newValue);
+        }
+        public String getPropertyValue() {
+            return globalProperty.getPropertyValue();
+        }
+        public void setAttribute(String key, Object value){
+            globalProperty.setAttribute(key, value);
+        }
+
+        public void addPropertyChangeListener(PropertyChangeListener listener) {
+            propertyChangeSupport.addPropertyChangeListener(listener);
+        }
+
+        public void removePropertyChangeListener(PropertyChangeListener listener) {
+            propertyChangeSupport.removePropertyChangeListener(listener);
         }
     }
 }
