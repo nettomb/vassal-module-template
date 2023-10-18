@@ -2,11 +2,11 @@ package my_custom_component;
 
 import VASSAL.build.Buildable;
 import VASSAL.build.GameModule;
+import VASSAL.build.module.Chatter;
 import VASSAL.build.module.GlobalOptions;
 import VASSAL.build.module.Map;
 import VASSAL.build.module.ModuleExtension;
 import VASSAL.build.module.documentation.HelpFile;
-import VASSAL.build.module.properties.GlobalProperty;
 import VASSAL.command.Command;
 import VASSAL.command.CommandEncoder;
 import VASSAL.command.RemovePiece;
@@ -24,7 +24,6 @@ import java.awt.*;
 import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
-import java.beans.PropertyChangeSupport;
 import java.io.*;
 import java.net.URL;
 import java.util.*;
@@ -37,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 public final class AnimatedDice extends ModuleExtension implements CommandEncoder, Buildable{
     private GameModule gameModule;
     private DataArchive dataArchive;
+    private static final String COMMAND_PREFIX = "ANIMATED_3D_DICE:";
     private String ICONS_IMAGES_PATH = "Cursor/";
     private String RED_DIE_FOLDER_PATH = "DiceImages/RED DIE/";
     private String HESITANT_RED_DIE_FOLDER_PATH = "DiceImages/HRED DIE/";
@@ -105,7 +105,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private int[] results;
     private boolean thisCaller = false;
     private final Map currentMap;
-    GlobalPropertyWrapper diceRollCall = new GlobalPropertyWrapper(new GlobalProperty());
+    protected CommandEncoder commandEncoder;
+    private String playerId = GlobalOptions.getInstance().getPlayerId();
+
 
 
     // TEST CODE START
@@ -172,31 +174,14 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
     }
 
-
     @Override
     public void addTo(Buildable parent) {
         if (parent instanceof GameModule) {
             gameModule = (GameModule) parent;
 
-            diceRollCall.addPropertyChangeListener(new PropertyChangeListener() {
-                @Override
-                public void propertyChange(PropertyChangeEvent evt){
-                    System.out.println("Inside property change");
-                    System.out.println("source: " + evt.getSource());
-                    if (!thisCaller) {
-                        String r = (String) diceRollCall.getPropertyValue();
-                        int[] tempResults = Arrays.stream(r.substring(1, r.length() - 1).split(", ")).mapToInt(Integer::parseInt).toArray();
-                        System.out.println("Results: " + tempResults[0] + " / " + (tempResults.length == 1 ? "" : tempResults[1]));
-                        if (oneDieButton.isEnabled() == true){
-                            results = tempResults;
-                            thisCaller = false; // so that the execute method knows that the animation was called from outside
-                            executeRoll(results.length == 1? 1 : 2);
-                        } else { // Maybe we have an animation running, so we'll print the result to the chat, but without running the animation and without changing the results int[] array that may be in use.
-                            sendResults(results.length == 1? 1 : 2, tempResults);
-                        }
-                    }
-                };
-            });
+            // ADDS A COMMAND ENCODER FOR RunDiceAnimationCommand THAT WILL MAKE THE ANIMATION RUN ON THE OPPONENT'S COMPUTER WHEN THE ROLL BUTTON IS PRESSED
+            gameModule.addCommandEncoder(this);
+            ((GameModule) parent).getGameState().addGameComponent(this);
 
             // CREATE BUTTONS
             URL iconURL = null;
@@ -449,26 +434,20 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private void sendRolls(){
         new Thread (()-> {
             int[] testResult1 = {2, 4};
+            results = testResult1;
+            Command c = new Chatter.DisplayText(gameModule.getChatter(), playerId + " Rolling!!");
+            c.append(new RunDiceAnimationCommand(this, results[0], results.length == 1 ? 0 : results[1]));
+            c.execute();
+            gameModule.sendAndLog(c);
+            /*Thread.currentThread().sleep(4000);
             int[] testResult2 = {1};
+            results = testResult2;
+            executeRoll(1);
+            Thread.currentThread().sleep(4000);
             int[] testResult3 = {3, 6};
-            try {
-                System.out.println("PropertyValue: " + diceRollCall.getPropertyValue());
+            results = testResult3;
+            executeRoll(2);*/
 
-                diceRollCall.setPropertyValue(Arrays.toString(testResult1));
-                Thread.sleep(5000);
-                diceRollCall.setPropertyValue(Arrays.toString(testResult2));
-                Thread.sleep(3000);
-                diceRollCall.setPropertyValue(Arrays.toString(testResult3));
-
-                diceRollCall.setPropertyValue(Arrays.toString(testResult1));
-
-                diceRollCall.setPropertyValue(Arrays.toString(testResult2));
-                ;
-
-                diceRollCall.setPropertyValue(Arrays.toString(testResult3));
-            } catch (InterruptedException e) {
-
-            }
         }).start();
     }
     // TEST CODE END
@@ -530,7 +509,11 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         // Only rolls the dice if the current player is who called the roll. If the opposing player called the roll, display the animation based on the results passed to the global property diceRollCall
         if (thisCaller) {
             results = RollDices(numberOfDice, NUMBER_OF_SIDES);
-            diceRollCall.setPropertyValue(Arrays.toString(results)); // sets the results Attribute which will trigger the propertyChange method playing the animation in the opponent computer
+            // After generating the results, sends a command to execute the animation in the opponents computer
+            Command c = new Chatter.DisplayText(gameModule.getChatter(), playerId + " Rolling!!");
+            c.append(new RunDiceAnimationCommand(this, results[0], results.length == 1 ? 0 : results[1]));
+            c.execute();
+            gameModule.sendAndLog(c);
         }
 
         pieces = new HashMap<>();
@@ -649,7 +632,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             e.printStackTrace();
         }
 
-        // We definitely remove each piece so that no artifacts are presented on screen and load new images for each result
+        // We definitely remove each piece so that no artifacts are presented on screen and load new images for each result. SHOULD BE REDUNDANT, BUT IF NOT DONE, ARTIFACTS ACCUMULATE AT THE BORDER OF PIECES FRAME.
         try {
             new Thread(() -> {
                 for (String key : pieces.keySet()) {
@@ -898,7 +881,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         //PlayerRoster playerRoster = gameModule.getPlayerRoster();
         //PlayerRoster.PlayerInfo[] players = playerRoster.getPlayers();
         //System.out.println("current Player: " + players.length);
-        String playerId = GlobalOptions.getInstance().getPlayerId();
         System.out.println("HTML: " + GlobalOptions.getInstance().chatterHTMLSupport() + " / HTML SETTINGS: " + GlobalOptions.getInstance().chatterHTMLSetting());
         try {
             String redDie = "";
@@ -955,6 +937,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             // Remove the button from the toolbar
             gameModule.getToolBar().remove(oneDieButton);
             gameModule.getToolBar().remove(twoDiceButton);
+
+            // Remove Command encoders
+            ((GameModule) parent).removeCommandEncoder(this);
+            ((GameModule) parent).getGameState().removeGameComponent(this);
         }
     }
 
@@ -990,15 +976,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             }
         }*/
         return folderNameBuilder;
-    }
-
-    @Override
-    public Command decode(String s) {
-        return null;
-    }
-    @Override
-    public String encode(Command command){
-        return null;
     }
 
     @Override
@@ -1135,34 +1112,59 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
-    public class GlobalPropertyWrapper {
-        private GlobalProperty globalProperty;
-        private PropertyChangeSupport propertyChangeSupport;
+    protected static class RunDiceAnimationCommand extends Command {
+        public static final String PREFIX = COMMAND_PREFIX;
+        private AnimatedDice animatedDice;
+        private int whiteResult = 0;
+        private int redResult = 0;
+        private int[] results;
 
-        public GlobalPropertyWrapper(GlobalProperty globalProperty) {
-            this.globalProperty = globalProperty;
-            this.propertyChangeSupport = new PropertyChangeSupport(this);
-        }
-
-        public void setPropertyValue(String newValue) {
-            String oldValue = globalProperty.getPropertyValue();
-            globalProperty.setPropertyValue(newValue);
-            propertyChangeSupport.firePropertyChange("propertyValue", oldValue, newValue);
-        }
-        public String getPropertyValue() {
-            return globalProperty.getPropertyValue();
-        }
-        public void setAttribute(String key, Object value){
-            globalProperty.setAttribute(key, value);
+        public RunDiceAnimationCommand(AnimatedDice animatedDice, int whiteResult, int redResult) {
+            this.animatedDice = animatedDice;
+            this.whiteResult = whiteResult;
+            this.redResult = redResult;
         }
 
-        public void addPropertyChangeListener(PropertyChangeListener listener) {
-            propertyChangeSupport.addPropertyChangeListener(listener);
+        protected void executeCommand() {
+            if (animatedDice.oneDieButton.isEnabled() || animatedDice.twoDiceButton.isEnabled()){
+                if (redResult == 0){
+                    results = new int[1];
+                    results[0] = whiteResult;
+                } else {
+                    results = new int[2];
+                    results[0] = whiteResult;
+                    results[1] = redResult;
+                }
+                animatedDice.results = this.results;
+                animatedDice.executeRoll(results.length);
+            }
+        }
+        public int getWhiteResult(){
+            return whiteResult;
+        }
+        public int getRedResult(){
+            return redResult;
         }
 
-        public void removePropertyChangeListener(PropertyChangeListener listener) {
-            propertyChangeSupport.removePropertyChangeListener(listener);
+        protected Command myUndoCommand() {
+            return null;
         }
+    }
+
+    public String encode(Command c) {
+        if (c instanceof  RunDiceAnimationCommand) {
+            System.out.println("inside encode");
+            System.out.println("encoded string: " + (!(c instanceof RunDiceAnimationCommand) ? null : COMMAND_PREFIX + ((RunDiceAnimationCommand) c).getWhiteResult() + ((RunDiceAnimationCommand) c).getRedResult()));
+            String s = (!(c instanceof RunDiceAnimationCommand) ? null : COMMAND_PREFIX + ((RunDiceAnimationCommand) c).getWhiteResult() + ((RunDiceAnimationCommand) c).getRedResult());
+            System.out.println("arguments: " + Integer.parseInt(s.substring(COMMAND_PREFIX.length(), COMMAND_PREFIX.length() + 1)) + ", " + Integer.parseInt(s.substring(COMMAND_PREFIX.length() + 1, COMMAND_PREFIX.length() + 2)));
+        }
+        return !(c instanceof RunDiceAnimationCommand) ? null : COMMAND_PREFIX + ((RunDiceAnimationCommand) c).getWhiteResult() + ((RunDiceAnimationCommand) c).getRedResult();
+    }
+    public Command decode(String s) {
+        System.out.println("inside decode");
+        return !s.startsWith(COMMAND_PREFIX) ? null : new RunDiceAnimationCommand(this,
+                Integer.parseInt(s.substring(COMMAND_PREFIX.length(), COMMAND_PREFIX.length() + 1)),
+                Integer.parseInt(s.substring(COMMAND_PREFIX.length() + 1, COMMAND_PREFIX.length() + 2)));
     }
 }
 
