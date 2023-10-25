@@ -27,10 +27,10 @@ import java.beans.PropertyChangeListener;
 import java.io.*;
 import java.net.URL;
 import java.util.*;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CountDownLatch;
 
 
 public final class AnimatedDice extends ModuleExtension implements CommandEncoder, Buildable{
@@ -81,6 +81,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     //private List<Image> images; // to be fed with the dice images that will be drawn on the pieces
     private HashMap<String, HashMap<Integer, ArrayList<Image>>> imagesCache1; // set of preloaded images for each die and each result on the form: "Red": 6: List of images
     private HashMap<String, HashMap<Integer, ArrayList<Image>>> imagesCache2;
+    private ProjectingPiece redProjectingPiece;
+    private ProjectingPiece whiteProjectingPiece;
     private boolean isFeedingCache1;
     private boolean isFeedingCache2;
     private boolean oddRound = true;
@@ -504,7 +506,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         oneDieButton.setEnabled(false);
         twoDiceButton.setEnabled(false);
 
-        removeLastFrames();
+        removePieces();
         // ROLL DICE AND CREATE PIECES
         // Only rolls the dice if the current player is who called the roll. If the opposing player called the roll, display the animation based on the results passed to the global property diceRollCall
         if (thisCaller) {
@@ -516,17 +518,15 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             gameModule.sendAndLog(c);
         }
 
-        pieces = new HashMap<>();
         if (numberOfDice == 1) {
-            createPieces("white", results[0], oddRound? imagesCache1 : imagesCache2);
+            whiteProjectingPiece = createProjectingPiece("white", results[0], oddRound? "cache1" : "cache2");
         } else if (numberOfDice == 2){
-            createPieces("red", results[1], oddRound? imagesCache1 : imagesCache2);
-            createPieces("white", results[0], oddRound? imagesCache1 : imagesCache2);
+            redProjectingPiece = createProjectingPiece("red", results[1], oddRound? "cache1" : "cache2");
+            whiteProjectingPiece = createProjectingPiece("white", results[0], oddRound? "cache1" : "cache2");
         }
 
         // START PRELOAD OF NEXT SET OF IMAGES
-        //feedingImages = true;
-        // since we finished using the current Cache for creating pieces, we can begin to feed it again
+        //since we finished using the current Cache for creating pieces, we can begin to feed it again
         System.out.println("ROUND: " + (oddRound? "odd" : "even"));
         if (oddRound)
             isFeedingCache1 = true;
@@ -551,7 +551,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             System.out.println("Unable to preload images");
             e.printStackTrace();
         }
-        scheduler = Executors.newSingleThreadScheduledExecutor();
 
         // START SOUNDS
         if (isDiceSoundOn) {
@@ -571,52 +570,66 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         int x = (min_x + adjustedDicePositionSettings); // we add the adjusted offset to the leftmost point of the window.
         int y = rectangle.y;
 
-        int whiteDieAnimationLength = pieces.get("white").length;
-        int redDieAnimationLength = (pieces.containsKey("red") ? pieces.get("red").length : 0);
-        //System.out.println("N3");
-        System.out.println("WHITE DIE ANIM LENGTH: " + whiteDieAnimationLength);
-        System.out.println("RED DIE ANIM LENGTH: " + redDieAnimationLength);
-        int diePosition = new Random().nextInt(numberOfDice); // always 0 if only one die
 
-        // BEGINS THE ANIMATION
-        Runnable task = () -> displayImage(x,y,whiteDieAnimationLength,redDieAnimationLength, diePosition);
-        scheduler.scheduleAtFixedRate(task, 0, imageDelay, TimeUnit.MILLISECONDS);
+        // PROJECTING PIECE METHOD
+        scheduler = Executors.newSingleThreadScheduledExecutor();
+        placeProjectingPieces(x, y, numberOfDice);
+        Runnable task2 = () -> projectImages();
+        scheduler.scheduleWithFixedDelay(task2, 0, imageDelay, TimeUnit.MILLISECONDS);
     }
-
-    private void removeLastFrames(){
-        synchronized (this) {
-            if (isImageVisible) { // Checks to see if the last frame is still visible. It can be cleaned when the onScreenDuration time value has passed.
-                isImageVisible = false;
-                for (String key : pieces.keySet()) {
-                    //hideImage(pieces.get(key)[pieces.get(key).length - 1]); // Hide last frame, which remained visible
-                    if (pieces.get(key)[pieces.get(key).length - 1] != null) {
-                        Command remove = new RemovePiece(pieces.get(key)[pieces.get(key).length - 1]);
-                        remove.execute();
-                    }
-                }
+    private void projectImages(){
+        if (redProjectingPiece != null) {
+            int whiteIndex = whiteProjectingPiece.nextImage();
+            int redIndex = redProjectingPiece.nextImage();
+            if (whiteIndex == -1 && redIndex == -1) {
+                stopAnimation();
+            }
+        } else {
+            if (whiteProjectingPiece.nextImage() == -1){
+                stopAnimation();
             }
         }
+        /*System.out.println("index: " + whiteProjectingPiece.imageIndex);
+        try {
+            Thread.currentThread().sleep(imageDelay);
+        } catch (InterruptedException e){
+            e.printStackTrace();
+        }*/
+        currentMap.repaint();
+    }
+    private void placeProjectingPieces(int x, int y, int numberOfDice){
+        int diePosition = new Random().nextInt(numberOfDice); // always 0 if only one die
+        if (numberOfDice == 1) {
+            currentMap.placeAt(whiteProjectingPiece, new Point(x, y));
+        } else {
+            currentMap.placeAt(diePosition == 0 ? whiteProjectingPiece : redProjectingPiece, new Point(x, y));
+            currentMap.placeAt(diePosition == 0 ? redProjectingPiece : whiteProjectingPiece, new Point(x + IMAGE_SIZE, y));
+        }
+    }
+    private void removePieces(){
+            if (isImageVisible) { // Checks to see if the piece is still visible. It can be cleaned when the onScreenDuration time value has passed.
+                isImageVisible = false;
+                    if (whiteProjectingPiece != null) {
+                        Command remove = new RemovePiece(whiteProjectingPiece);
+                        remove.execute();
+                        whiteProjectingPiece = null;
+                    }
+                    if (redProjectingPiece != null){
+                        Command remove = new RemovePiece(redProjectingPiece);
+                        remove.execute();
+                        redProjectingPiece = null;
+                    }
+            }
     }
 
     public void stopAnimation(){
         // ENDS ANIMATION
         scheduler.shutdown();
-        try{
-            if (!scheduler.awaitTermination(1, TimeUnit.SECONDS)){
-                scheduler.shutdownNow();
-                isAnimationInProgress = false;
-                currentFrame = 0;
-                isImageVisible = true; // can only set this to true after last image is displayed, since when the button is pressed again, the behavior depends on that variable
-                oddRound = !oddRound; // We change round so that in the next execution, the other cache will be used and fed.
-            }
-        } catch (InterruptedException ex){
-            System.out.println("Unable to shut down Animation scheduler");
-            //scheduler.shutdownNow();
-            //Thread.currentThread().interrupt();
-        }
+        isAnimationInProgress = false;
+        isImageVisible = true; // can only set this to true after last image is displayed, since when the button is pressed again, the behavior depends on that variable
+        oddRound = !oddRound; // We change round so that in the next execution, the other cache will be used and fed.
+
         // CLEANS PIECES AND RESET BUTTONS
-        final BasicPiece lastRed = pieces.containsKey("red") ? pieces.get("red")[pieces.get("red").length - 1] : null;
-        final BasicPiece lastWhite = pieces.get("white")[pieces.get("white").length - 1];
         try { // Remove last piece still visible if not already done after the onScreenDuration time value.
             long startTime = System.currentTimeMillis();
             new Thread(()->{
@@ -625,25 +638,16 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         break;
                     Thread.yield();
                 }
-                removeLastFrames();
+                removePieces();
                 Thread.currentThread().interrupt();
             }).start();
         } catch (Exception e){
             e.printStackTrace();
         }
 
-        // We definitely remove each piece so that no artifacts are presented on screen and load new images for each result. SHOULD BE REDUNDANT, BUT IF NOT DONE, ARTIFACTS ACCUMULATE AT THE BORDER OF PIECES FRAME.
+        // We check if the next cache to be used is already available and enable the buttons if so.
         try {
             new Thread(() -> {
-                for (String key : pieces.keySet()) {
-                    for (BasicPiece piece : pieces.get(key)) {
-                        //System.out.println("Piece : " + piece);
-                        if (piece != null && !piece.equals(key == "red" ? lastRed : lastWhite)) {
-                            Command remove = new RemovePiece(piece);
-                            remove.execute();
-                        }
-                    }
-                }
                 // If round is odd, ImagesCache1 has been used to create pieces and, after that, it began being fed. ImagesCache2 was fed when round was even
                 // and should have been finished by now. If not, the thread waits and prevents buttons to be enabled, avoiding a new round.
                 System.out.println("BEFORE ENABLING BUTTONS -> ROUND : " + (oddRound? "odd" : "even"));
@@ -664,74 +668,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         } catch (Exception e) {
             System.out.println("Inside executeRoll. Exception while Resetting Roll Dice Button.");
             e.printStackTrace();
-        }
-    }
-
-    private void displayImage(int x, int y, int whiteDieAnimationLength, int redDieAnimationLength, int diePosition){
-        synchronized (animationLock) {
-            if (currentMap != null) {
-                if (currentFrame == (whiteDieAnimationLength >= redDieAnimationLength ? whiteDieAnimationLength : redDieAnimationLength)) {
-                    synchronized (soundObject) {
-                        soundObject.notify();
-                    }
-                    stopAnimation();
-                    return;
-                }
-                int xCoordinate = x;
-                int yCoordinate = y;
-                if (redDieAnimationLength == 0) {
-                    placePiece(pieces.get("white")[currentFrame], new Point(xCoordinate, yCoordinate));
-                    if (currentFrame > 1) {
-                        removePiece(pieces.get("white")[currentFrame - 1]);
-                    }
-                } else if (redDieAnimationLength != 0) {
-                    //System.out.println("N5");
-                    //System.out.println("Current Frame: " + currentFrame + " and " + (diePosition == 1 ? "Red Animation length :" + redDieAnimationLength:"White Animation length :" + whiteDieAnimationLength));
-                    if (currentFrame < (diePosition == 0 ? whiteDieAnimationLength : redDieAnimationLength)) {
-                        //System.out.println("N6");
-                        placePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame], new Point(xCoordinate, yCoordinate));
-                        if (currentFrame > 1) {
-                            removePiece(pieces.get(diePosition == 0 ? "white" : "red")[currentFrame - 1]);
-                        }
-                    }
-                    //System.out.println("N7");
-                    //System.out.println("Current Frame: " + currentFrame + " and " + (diePosition == 0 ? "Red Animation length :" + redDieAnimationLength:"White Animation length :" + whiteDieAnimationLength));
-                    if (currentFrame < (diePosition == 0 ? redDieAnimationLength : whiteDieAnimationLength)) {
-                        //System.out.println("N8");
-                        placePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame], new Point(xCoordinate + IMAGE_SIZE, yCoordinate));
-                        if (currentFrame > 1) {
-                            removePiece(pieces.get(diePosition == 0 ? "red" : "white")[currentFrame - 1]);
-                        }
-                    }
-                }
-                //System.out.println("N9");
-                currentFrame = (currentFrame + 1);
-            }
-        }
-    }
-
-    private synchronized void placePiece(BasicPiece piece, Point point) {
-        try {
-            if (piece != null)
-                currentMap.placeAt(piece, point);
-        } catch (Exception e){
-            e.printStackTrace();
-            System.out.println("NullPointerException when trying to PLACE the piece at frame: " + currentFrame);
-        }
-    }
-
-    private synchronized void removePiece(BasicPiece piece) {
-        try {
-            //System.out.println("PIECE BEFORE REMOVAL: " + piece);
-            //System.out.println("IS PIECE NULL? " + (piece == null? "Yes" : "No"));
-            if (piece != null) {
-                //System.out.println("Inside removal block");
-                Command remove = new RemovePiece(piece);
-                remove.execute();
-            }
-        } catch (Exception e){
-            e.printStackTrace();
-            System.out.println("NullPointerException when trying to REMOVE the piece at frame: " + currentFrame);
         }
     }
 
@@ -756,6 +692,23 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 pieces.get(die)[i] = piece;
             //System.out.println("PIECES CREATION END");
         }
+    }
+    private ProjectingPiece createProjectingPiece(String die, int result, String cache){
+        ArrayList<Image> images = new ArrayList<>();
+        System.out.println("Cache: " + cache);
+        System.out.println("Result: " + result);
+        System.out.println("Die: " + die);
+        System.out.println("Cache == cache1: " + cache.equals("cache1"));
+        ArrayList testCache = cache.equals("cache1")? imagesCache1.get(die).get(result): imagesCache2.get(die).get(result);
+        System.out.println("test cache size: " + testCache.size());
+
+        for (Object image: (cache.equals("cache1") ? imagesCache1.get(die).get(result) : imagesCache2.get(die).get(result))){
+            images.add((Image)image);
+            System.out.println("Inside loop for copying images");
+        }
+        System.out.println("images list length: " + images.size());
+        ProjectingPiece projectingPiece = new ProjectingPiece(images);
+        return projectingPiece;
     }
 
     public void getImages(String path, HashMap<String, HashMap<Integer, ArrayList<Image>>> cache, String die, int result){
@@ -878,9 +831,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         System.out.println("FINISHED DRAW");
     }
     private void sendResults(int numberOfDice, int[] results){
-        //PlayerRoster playerRoster = gameModule.getPlayerRoster();
-        //PlayerRoster.PlayerInfo[] players = playerRoster.getPlayers();
-        //System.out.println("current Player: " + players.length);
         System.out.println("HTML: " + GlobalOptions.getInstance().chatterHTMLSupport() + " / HTML SETTINGS: " + GlobalOptions.getInstance().chatterHTMLSetting());
         try {
             String redDie = "";
@@ -899,12 +849,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         } catch (IOException e){
             e.printStackTrace();
         }
-
-        // Send the formatted message through Chatter
-        //gameModule.getChatter().send(formattedMessage);
-        //Command c = report.length() == 0 ? new NullCommand() : new Chatter.DisplayText(GameModule.getGameModule().getChatter(), report.toString());
-        //((Command)c).execute();
-        //GameModule.getGameModule().sendAndLog(c);
     }
 
     private int[] RollDices (int numberOfDice, int numberOfSides){
@@ -1165,6 +1109,40 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         return !s.startsWith(COMMAND_PREFIX) ? null : new RunDiceAnimationCommand(this,
                 Integer.parseInt(s.substring(COMMAND_PREFIX.length(), COMMAND_PREFIX.length() + 1)),
                 Integer.parseInt(s.substring(COMMAND_PREFIX.length() + 1, COMMAND_PREFIX.length() + 2)));
+    }
+
+    public class ProjectingPiece extends BasicPiece{
+        private int imageIndex;
+        private ArrayList<Image> images;
+
+        public ProjectingPiece(ArrayList<Image> images){
+            super();
+            this.images = images;
+        }
+
+        @Override
+        public void draw(Graphics g, int x, int y, Component obs, double zoom) {
+            super.draw(g, x, y, obs, zoom);
+
+            // Draw the image at the specified (x, y) coordinates using the current image index
+            Image image = images.get(imageIndex);
+            g.drawImage(image, x, y, obs);
+        }
+
+        // Method to change the current image index
+        public int setImageIndex(int newIndex) {
+            if (newIndex >= 0 && newIndex < images.size()) {
+                imageIndex = newIndex;
+            } else {
+                return -1;
+            }
+            System.out.println("new index: " + imageIndex);
+            return 1;
+        }
+
+        public int nextImage(){
+            return setImageIndex(imageIndex + 1);
+        }
     }
 }
 
