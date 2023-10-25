@@ -481,11 +481,16 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 try {
                     synchronized (soundObject) {
                         soundObject.wait();
+                        System.out.println("sound waiting");
                     }
                 } catch (InterruptedException e){
 
                 }
+                System.out.println("sound before interruptf");
+                clip.flush();
+                clip.stop();
                 clip.close();
+                System.out.println("After interrupt");
                 Thread.currentThread().interrupt();
             }).start();
             try{  // Works without the try block, but seems to delay the first use of sounds
@@ -624,6 +629,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
     public void stopAnimation(){
         // ENDS ANIMATION
+        synchronized (soundObject) {
+            soundObject.notify();
+        }
         scheduler.shutdown();
         isAnimationInProgress = false;
         isImageVisible = true; // can only set this to true after last image is displayed, since when the button is pressed again, the behavior depends on that variable
@@ -695,16 +703,16 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     }
     private ProjectingPiece createProjectingPiece(String die, int result, String cache){
         ArrayList<Image> images = new ArrayList<>();
-        System.out.println("Cache: " + cache);
-        System.out.println("Result: " + result);
-        System.out.println("Die: " + die);
-        System.out.println("Cache == cache1: " + cache.equals("cache1"));
+        //System.out.println("Cache: " + cache);
+        //System.out.println("Result: " + result);
+        //System.out.println("Die: " + die);
+        //System.out.println("Cache == cache1: " + cache.equals("cache1"));
         ArrayList testCache = cache.equals("cache1")? imagesCache1.get(die).get(result): imagesCache2.get(die).get(result);
-        System.out.println("test cache size: " + testCache.size());
+        //System.out.println("test cache size: " + testCache.size());
 
         for (Object image: (cache.equals("cache1") ? imagesCache1.get(die).get(result) : imagesCache2.get(die).get(result))){
             images.add((Image)image);
-            System.out.println("Inside loop for copying images");
+            //System.out.println("Inside loop for copying images");
         }
         System.out.println("images list length: " + images.size());
         ProjectingPiece projectingPiece = new ProjectingPiece(images);
