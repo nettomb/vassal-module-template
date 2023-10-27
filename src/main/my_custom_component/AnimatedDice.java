@@ -9,11 +9,11 @@ import VASSAL.build.module.ModuleExtension;
 import VASSAL.build.module.documentation.HelpFile;
 import VASSAL.command.Command;
 import VASSAL.command.CommandEncoder;
-import VASSAL.command.RemovePiece;
 import VASSAL.configure.BooleanConfigurer;
 import VASSAL.configure.IntConfigurer;
 import VASSAL.counters.BasicPiece;
 import VASSAL.tools.DataArchive;
+import VASSAL.command.RemovePiece;
 
 import javax.imageio.ImageIO;
 import javax.sound.sampled.AudioInputStream;
@@ -87,6 +87,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private boolean isFeedingCache1;
     private boolean isFeedingCache2;
     private boolean oddRound = true;
+    private int numberOfDice;
     private int[] lastDiceImageFolderIndexes = new int[]{0,0}; // Keeps the last two dice image folders indexes stored to prevent immediate repetition of same animation
     private int lastNumberOfDiceRolled = 1;
     private HashMap<Integer, HashMap<Integer, ArrayList<Integer>>> redHesitantDieFolderBuilder; //Keep data taken from a txt file to reproduce the folder names for hesitant dice. Key: Animation number / Key: die result / value: rejected die value (middle number in folder name)
@@ -504,11 +505,12 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
     private void executeRoll(int numberOfDice){
         // UNABLE BUTTONS AND HIDE DICE IF NOT YET HIDDEN
+        this.numberOfDice = numberOfDice;
         isAnimationInProgress = true;
+        removePieces();
         oneDieButton.setEnabled(false);
         twoDiceButton.setEnabled(false);
 
-        removePieces();
         // ROLL DICE AND CREATE PIECES
         // Only rolls the dice if the current player is who called the roll. If the opposing player called the roll, display the animation based on the results passed to the global property diceRollCall
         if (thisCaller) {
@@ -594,7 +596,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         System.out.println("Projecting images");
         System.out.println("whitePiece is null? " + (whiteProjectingPiece == null));
         System.out.println("whitePiece images list size: " + whiteProjectingPiece.images.size());
-        if (redProjectingPiece != null) {
+        if (numberOfDice == 2) {
             int whiteIndex = whiteProjectingPiece.nextImage();
             int redIndex = redProjectingPiece.nextImage();
             System.out.println("Check white and red indices before stopping: " + whiteIndex + "/" + redIndex);
@@ -624,18 +626,18 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             }
         }
     }
-    private void removePieces(){
+    private synchronized void removePieces(){
             if (isImageVisible) { // Checks to see if the piece is still visible. It can be cleaned when the onScreenDuration time value has passed.
                 isImageVisible = false;
                     if (whiteProjectingPiece != null) {
                         Command remove = new RemovePiece(whiteProjectingPiece);
                         remove.execute();
-                        whiteProjectingPiece = null;
                     }
-                    if (redProjectingPiece != null){
-                        Command remove = new RemovePiece(redProjectingPiece);
-                        remove.execute();
-                        redProjectingPiece = null;
+                    if (numberOfDice == 2) {
+                        if (redProjectingPiece != null) {
+                            Command remove = new RemovePiece(redProjectingPiece);
+                            remove.execute();
+                        }
                     }
             }
     }
@@ -661,7 +663,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     Thread.yield();
                 }
                 System.out.println("Before piece removal by time");
-                removePieces();
+                if (!isAnimationInProgress) // Checks again to prevent it from running after the executeRoll method has already called it, since the new pieces may already have been created and the null check inside the removePiece method will fail.
+                    removePieces();
                 Thread.currentThread().interrupt();
             }).start();
         } catch (Exception e){
