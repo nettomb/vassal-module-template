@@ -9,11 +9,11 @@ import VASSAL.build.module.ModuleExtension;
 import VASSAL.build.module.documentation.HelpFile;
 import VASSAL.command.Command;
 import VASSAL.command.CommandEncoder;
+import VASSAL.command.RemovePiece;
 import VASSAL.configure.BooleanConfigurer;
 import VASSAL.configure.IntConfigurer;
 import VASSAL.counters.BasicPiece;
 import VASSAL.tools.DataArchive;
-import VASSAL.command.RemovePiece;
 
 import javax.imageio.ImageIO;
 import javax.sound.sampled.AudioInputStream;
@@ -28,9 +28,10 @@ import java.io.*;
 import java.net.URL;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
 
 
 public final class AnimatedDice extends ModuleExtension implements CommandEncoder, Buildable{
@@ -53,11 +54,15 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final String DICE_ON_SCREEN_DURATION_SETTINGS = "diceOnScreenDurationSettings";
     private final String SHUFFLE_SOUND_SETTINGS = "shuggleSoundSettings";
     private final String DICE_SOUND_SETTINGS = "diceSoundSettings";
+    private final String TOOLTIP_TEXT = "<html><ul><li>Left Click to <b>ROLL</b>. " +
+            "<li>Right Click to get a <b>QUICK ROLL</b>, without animation." +
+            "<li>Keep button pressed to <b>SHUFFLE</b> the initial random result according to mouse movement pattern." +
+            "<br><br>Go to <b>PREFERENCES</b> to change Animated Dice properties like speed, position etc.</li></html>";
     private int dicePositionSettings;
     private int MAX_HORIZONTAL_OFFSET = 0;
     private int IMAGE_SIZE = 250;
-    private boolean isImageVisible; // establish if last dice frame is still visible in the screen so that the button is in Hide mode.
-    private boolean isAnimationInProgress = false; // prevents mousePress action before animation finishes.
+    private volatile boolean isImageVisible; // establish if last dice frame is still visible in the screen so that the button is in Hide mode.
+    private volatile boolean isAnimationInProgress = false; // prevents mousePress action before animation finishes.
     private JButton oneDieButton;
     private boolean oneDieButtonVisible;
     private JButton twoDiceButton;
@@ -82,8 +87,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     //private List<Image> images; // to be fed with the dice images that will be drawn on the pieces
     private HashMap<String, HashMap<Integer, ArrayList<Image>>> imagesCache1; // set of preloaded images for each die and each result on the form: "Red": 6: List of images
     private HashMap<String, HashMap<Integer, ArrayList<Image>>> imagesCache2;
-    private ProjectingPiece redProjectingPiece = null;
-    private ProjectingPiece whiteProjectingPiece = null;
+    private volatile ProjectingPiece redProjectingPiece = null;
+    private volatile ProjectingPiece whiteProjectingPiece = null;
     private boolean isFeedingCache1;
     private boolean isFeedingCache2;
     private boolean oddRound = true;
@@ -97,13 +102,13 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final int NUMBER_OF_DIE_ANIMATIONS = 27; // ALTER THAT IF MORE ANIMATIONS ARE ADEED
     private final int NUMBER_OF_HESITANT_DIE_ANIMATIONS = 5;
     //private boolean feedingImages; // Checks if the thread for loading images is still running
-    private Object soundObject = new Object();
+    private final Object soundsLock = new Object();
+    private final Object removePieceSyncLock = new Object();
     private final Object feedingImagesLock = new Object(); // Lock to be used by threads to synchronize the feeding images process
     private byte[] dieAudioData;
     private byte[] diceAudioData;
     private byte[] shakingDiceAudioData;
     private CountDownLatch latch = new CountDownLatch(1);
-    private Cursor dieCursor;
     private boolean actionInProgress = false;
     private HashMap<String, BasicPiece[]> pieces; // pieces are added to this array to be displayed in order
     private int[] results;
@@ -202,6 +207,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     executeRoll(1);
                 }
             });
+            oneDieButton.setToolTipText(TOOLTIP_TEXT);
             oneDieButton.setMargin(new Insets(0,3,0,3));
             try {
                 iconURL = dataArchive.getURL(ICONS_IMAGES_PATH + "RollDiceButton.png");
@@ -216,6 +222,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     executeRoll(2);
                 }
             });
+            twoDiceButton.setToolTipText(TOOLTIP_TEXT);
             twoDiceButton.setMargin(new Insets(0,3,0,3));
 
             // TEST CODE START
@@ -443,15 +450,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             c.append(new RunDiceAnimationCommand(this, results[0], results.length == 1 ? 0 : results[1]));
             c.execute();
             gameModule.sendAndLog(c);
-            /*Thread.currentThread().sleep(4000);
-            int[] testResult2 = {1};
-            results = testResult2;
-            executeRoll(1);
-            Thread.currentThread().sleep(4000);
-            int[] testResult3 = {3, 6};
-            results = testResult3;
-            executeRoll(2);*/
-
         }).start();
     }
     // TEST CODE END
@@ -474,40 +472,50 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     }
 
     private void playSounds(byte[] audioData){
+        final AudioInputStream[] audioInputStream = {null};
+        final Clip[] clip = {null};
         try{
-            AudioInputStream audioInputStream = AudioSystem.getAudioInputStream(new ByteArrayInputStream(audioData));
-            Clip clip = AudioSystem.getClip();
-            clip.open(audioInputStream);
+            audioInputStream[0] = AudioSystem.getAudioInputStream(new ByteArrayInputStream(audioData));
+            clip[0] = AudioSystem.getClip();
+            clip[0].open(audioInputStream[0]);
             new Thread(() -> {
-                clip.start();
+                clip[0].start();
                 try {
-                    synchronized (soundObject) {
-                        soundObject.wait();
+                    synchronized (soundsLock) {
+                        soundsLock.wait();
                         System.out.println("sound waiting");
                     }
                 } catch (InterruptedException e){
-
+                    e.printStackTrace();
                 }
-                clip.close();
+                clip[0].close();
+                try{  // Works without the try block, but seems to delay the first use of sounds
+                    audioInputStream[0].close();
+                } catch(IOException e){
+                    e.printStackTrace();
+                }
                 Thread.currentThread().interrupt();
             }).start();
-            try{  // Works without the try block, but seems to delay the first use of sounds
-                audioInputStream.close();
-            } catch(IOException e){
-                e.printStackTrace();
-            }
         } catch (Exception e){
             System.out.println("Exception thrown");
             e.printStackTrace();
+        } finally {
+            try {
+                if (audioInputStream != null) {
+                    audioInputStream[0].close();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
     }
 
 
     private void executeRoll(int numberOfDice){
         // UNABLE BUTTONS AND HIDE DICE IF NOT YET HIDDEN
-        this.numberOfDice = numberOfDice;
         isAnimationInProgress = true;
-        removePieces();
+        //removePieces();
+        this.numberOfDice = numberOfDice;
         oneDieButton.setEnabled(false);
         twoDiceButton.setEnabled(false);
 
@@ -521,11 +529,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             c.execute();
             gameModule.sendAndLog(c);
         }
-        System.out.println("Cache used to create pieces: " + (oddRound? "CACHE 1" : "CACHE 2"));
         if (numberOfDice == 1) {
-            System.out.println("Before Piece Creation. Is white piece null? " + (whiteProjectingPiece == null));
             whiteProjectingPiece = createProjectingPiece("white", results[0], oddRound? "cache1" : "cache2");
-            System.out.println("After Piece Creation. Is white piece null? " + (whiteProjectingPiece == null));
         } else if (numberOfDice == 2){
             redProjectingPiece = createProjectingPiece("red", results[1], oddRound? "cache1" : "cache2");
             whiteProjectingPiece = createProjectingPiece("white", results[0], oddRound? "cache1" : "cache2");
@@ -538,30 +543,37 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             isFeedingCache1 = true;
         else
             isFeedingCache2 = true;
-        System.out.println("BEFORE FEEDING -> isFeedingCache1 set to: " + isFeedingCache1 + " //// isFeedingCache2 set to: " + isFeedingCache2);
-        try{
+        /*try{
             new Thread(() -> {
-                // TEST START
-                boolean oddRoundWhenBeganFeeding = oddRound;
-                // END TEST
                 HashMap<String, HashMap<Integer, ArrayList<Image>>> cacheUsed = oddRound ? imagesCache1 : imagesCache2;
                 DrawDiceFolders(cacheUsed); // Set feedingImages to FALSE after ending feed
-                //synchronized (feedingImagesLock){ // REMOVE????????????????????????????
-                //    feedingImagesLock.notify();
-                //}
                 if (cacheUsed == imagesCache1)
                     isFeedingCache1 = false;
                 else
                     isFeedingCache2 = false;
-                System.out.println("FINISHED FEEDING CACHE: " + (oddRoundWhenBeganFeeding? "cache1" : "cache2"));
-                System.out.println("AFTER FEEDING -> isFeedingCache1 set to: " + isFeedingCache1 + " //// isFeedingCache2 set to: " + isFeedingCache2);
                 Thread.currentThread().interrupt();
             }).start();
         } catch (Exception e){
             System.out.println("Unable to preload images");
             e.printStackTrace();
-        }
-        System.out.println("Starting sounds");
+        }*/
+        ExecutorService executor = Executors.newSingleThreadExecutor(); // Create a single-threaded ExecutorService
+
+        executor.submit(() -> {
+            try {
+                HashMap<String, HashMap<Integer, ArrayList<Image>>> cacheUsed = oddRound ? imagesCache1 : imagesCache2;
+                DrawDiceFolders(cacheUsed); // Set feedingImages to FALSE after ending feed
+                if (cacheUsed == imagesCache1)
+                    isFeedingCache1 = false;
+                else
+                    isFeedingCache2 = false;
+            } catch (Exception e) {
+                System.out.println("Unable to preload images");
+                e.printStackTrace();
+            }
+        });
+
+        executor.shutdown(); // Shutdown the ExecutorService after the task is complete
         // START SOUNDS
         if (isDiceSoundOn) {
             if (numberOfDice == 1)
@@ -569,11 +581,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             else
                 playSounds(diceAudioData);
         }
-        System.out.println("Setting parameters for animation");
+
         // SET PARAMETERS
         imageDelay = (1000/ animationSpeed); // transform frame rate into milliseconds delay
-        System.out.println("FRAME RATE: " + animationSpeed);
-        System.out.println("ImageDelay: " + imageDelay);
         Rectangle rectangle = currentMap.getView().getVisibleRect();
         // If dicePosition (set up in preferences), which is the offset of the animation to the left,
         // is larger than the width of the window minus the width of the images, we adjust it to the maximum place to which the animation may be offset without cropping the image.
@@ -584,28 +594,20 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
 
         // PROJECTING PIECE METHOD
-        System.out.println("Creating scheduler");
         scheduler = Executors.newSingleThreadScheduledExecutor();
         placeProjectingPieces(x, y, numberOfDice);
-        System.out.println("pieces placed");
-        System.out.println("Red piece null? " + (redProjectingPiece == null));
         Runnable task2 = () -> projectImages();
         scheduler.scheduleWithFixedDelay(task2, 0, imageDelay, TimeUnit.MILLISECONDS);
     }
     private void projectImages(){
-        System.out.println("Projecting images");
-        System.out.println("whitePiece is null? " + (whiteProjectingPiece == null));
-        System.out.println("whitePiece images list size: " + whiteProjectingPiece.images.size());
         if (numberOfDice == 2) {
             int whiteIndex = whiteProjectingPiece.nextImage();
             int redIndex = redProjectingPiece.nextImage();
-            System.out.println("Check white and red indices before stopping: " + whiteIndex + "/" + redIndex);
             if (whiteIndex == -1 && redIndex == -1) {
                 stopAnimation();
             }
         } else {
             int whiteIndex = whiteProjectingPiece.nextImage();
-            System.out.println("Check white index before stopping: " + whiteIndex);
             if (whiteIndex == -1){
                 System.out.println("Before call to stop animation");
                 stopAnimation();
@@ -626,35 +628,39 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             }
         }
     }
-    private synchronized void removePieces(){
+    private void removePieces(){
+        synchronized (removePieceSyncLock) {
             if (isImageVisible) { // Checks to see if the piece is still visible. It can be cleaned when the onScreenDuration time value has passed.
                 isImageVisible = false;
-                    if (whiteProjectingPiece != null) {
-                        Command remove = new RemovePiece(whiteProjectingPiece);
+                if (whiteProjectingPiece != null) {
+                    Command remove = new RemovePiece(whiteProjectingPiece);
+                    remove.execute();
+                    System.gc();
+                }
+                if (numberOfDice == 2) {
+                    if (redProjectingPiece != null) {
+                        Command remove = new RemovePiece(redProjectingPiece);
                         remove.execute();
+                        System.gc();
                     }
-                    if (numberOfDice == 2) {
-                        if (redProjectingPiece != null) {
-                            Command remove = new RemovePiece(redProjectingPiece);
-                            remove.execute();
-                        }
-                    }
+                }
             }
+        }
     }
 
     public void stopAnimation(){
         // ENDS ANIMATION
-        System.out.println("STOP animation BEGINNING................");
-        synchronized (soundObject) {
-            soundObject.notify();
+        synchronized (soundsLock) {
+            soundsLock.notify();
         }
+        System.out.println("Shutting down in stopAnimation");
         scheduler.shutdown();
         isAnimationInProgress = false;
         isImageVisible = true; // can only set this to true after last image is displayed, since when the button is pressed again, the behavior depends on that variable
         oddRound = !oddRound; // We change round so that in the next execution, the other cache will be used and fed.
 
         // CLEANS PIECES AND RESET BUTTONS
-        try { // Remove last piece still visible if not already done after the onScreenDuration time value.
+        /*try { // Remove last piece still visible if not already done after the onScreenDuration time value.
             long startTime = System.currentTimeMillis();
             new Thread(()->{
                 while (System.currentTimeMillis() - startTime < (onScreenDuration * 1000)) {
@@ -662,27 +668,23 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         Thread.currentThread().interrupt();
                     Thread.yield();
                 }
-                System.out.println("Before piece removal by time");
-                if (!isAnimationInProgress) // Checks again to prevent it from running after the executeRoll method has already called it, since the new pieces may already have been created and the null check inside the removePiece method will fail.
+                if (!isAnimationInProgress && isImageVisible) // Checks again to prevent it from running after the executeRoll method has already called it, since the new pieces may already have been created and the null check inside the removePiece method will fail.
                     removePieces();
                 Thread.currentThread().interrupt();
             }).start();
         } catch (Exception e){
             e.printStackTrace();
-        }
+        }*/
 
         // We check if the next cache to be used is already available and enable the buttons if so.
-        try {
+        /*try {
             new Thread(() -> {
                 // If round is odd, ImagesCache1 has been used to create pieces and, after that, it began being fed. ImagesCache2 was fed when round was even
                 // and should have been finished by now. If not, the thread waits and prevents buttons to be enabled, avoiding a new round.
-                System.out.println("BEFORE ENABLING BUTTONS -> NEXT ROUND : " + (oddRound? "odd" : "even"));
-                System.out.println("BEFORE ENABLING BUTTONS -> isFeedingCache1 set to: " + isFeedingCache1 + " //// isFeedingCache2 set to: " + isFeedingCache2);
                 while (oddRound? isFeedingCache1 : isFeedingCache2) { // CHECKS TO SEE IF THE CACHE TO BE USED IS READY AND ENABLE BUTTONS IF SO. The round was changed to the new round at the beginning of the method.
-                    System.out.println("WAITING FOR CACHES! CACHE1 FEEDING: " + isFeedingCache1 + " / CACHE2 FEEDING: " + isFeedingCache2);
                     Thread.yield();
                 }
-                System.out.println("AFTER WAITING WHILE LOOP! CACHE1 FEEDING: " + isFeedingCache1 + " / CACHE2 FEEDING: " + isFeedingCache2);
+
                 oneDieButton.setEnabled(true);
                 twoDiceButton.setEnabled(true);
                 if (thisCaller) // Will send results only if this instance has called the animation. Otherwise, the instance who called will send the results
@@ -692,47 +694,48 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 Thread.currentThread().interrupt();
             }).start();
         } catch (Exception e) {
-            System.out.println("Inside executeRoll. Exception while Resetting Roll Dice Button.");
             e.printStackTrace();
-        }
-    }
+        }*/
+        ExecutorService executor = Executors.newSingleThreadExecutor(); // Create a single-threaded ExecutorService
 
-    private void createPieces(String die, int result, HashMap<String, HashMap<Integer, ArrayList<Image>>> cache){
-        // In odd rounds we use Cache1 to create the pieces, while Cache2 is being fed.
-        int numberOfPieces = cache.get(die).get(result).size();
-        System.out.println("CREATE PIECES -> NUMBER OF IMAGES IN CACHE: " + numberOfPieces);
-        pieces.put(die, new BasicPiece[numberOfPieces]); // resets the pieces list
-        //System.out.println("PIECES CREATION START");
-        for (int i = 0; i < numberOfPieces; i++){
-            final int index = i; // make index final, so it can be accessed from the inner class
-            BasicPiece piece = new BasicPiece() {
-                private final Image image = cache.get(die).get(result).get(index);
-                @Override
-                public void draw(Graphics g, int x, int y, Component obs, double zoom) {
-                    super.draw(g, x, y, obs, zoom);
-                    // Draw the image at the specified (x, y) coordinates
-                        g.drawImage(image, x, y, obs);
-                }
-            };
-            if (piece != null)
-                pieces.get(die)[i] = piece;
-            //System.out.println("PIECES CREATION END");
+        executor.submit(() -> {
+            // Your task logic here
+            while (oddRound ? isFeedingCache1 : isFeedingCache2) {
+                Thread.yield();
+            }
+
+            oneDieButton.setEnabled(true);
+            twoDiceButton.setEnabled(true);
+            if (thisCaller) {
+                sendResults(results.length, results);
+            }
+            thisCaller = false;
+            currentMap.getView().repaint();
+
+            executor.shutdown(); // Shutdown the ExecutorService after the task is completed
+        });
+
+// Continue running tasks in the main thread without waiting for the new thread to finish
+        // REMOVE PIECES AFTER onScreenDuration if it isn't done by a new Roll.
+        long startTime = System.currentTimeMillis();
+        while (System.currentTimeMillis() - startTime < (onScreenDuration * 1000)) {
+            if (!isImageVisible)
+                break;
+        }
+        synchronized (removePieceSyncLock) {
+            if (isImageVisible && !isAnimationInProgress) {
+                removePieces();
+            }
         }
     }
     private ProjectingPiece createProjectingPiece(String die, int result, String cache){
         ArrayList<Image> images = new ArrayList<>();
-        //System.out.println("Cache: " + cache);
-        //System.out.println("Result: " + result);
-        //System.out.println("Die: " + die);
-        //System.out.println("Cache == cache1: " + cache.equals("cache1"));
         ArrayList testCache = cache.equals("cache1")? imagesCache1.get(die).get(result): imagesCache2.get(die).get(result);
-        //System.out.println("test cache size: " + testCache.size());
 
         for (Object image: (cache.equals("cache1") ? imagesCache1.get(die).get(result) : imagesCache2.get(die).get(result))){
             images.add((Image)image);
-            //System.out.println("Inside loop for copying images");
         }
-        System.out.println("images list length: " + images.size());
+
         ProjectingPiece projectingPiece = new ProjectingPiece(images);
         return projectingPiece;
     }
@@ -740,35 +743,25 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     public void getImages(String path, HashMap<String, HashMap<Integer, ArrayList<Image>>> cache, String die, int result){
         int imageNumber = 0;
         Random random = new Random();
-        //System.out.println("Path: " + path);
+
         while (true) {
             try {
-                //System.out.println("URL BEFORE");
                 URL imageURL = dataArchive.getURL(path + String.format("die%04d", imageNumber) + ".png");
-                //System.out.println("URL AFTER: " + imageURL);
                 try{
-                    //System.out.println("READING IMAGE BEFORE");
                     Image image = ImageIO.read(imageURL);
-                    //System.out.println("Image: " + image);
-                    //System.out.println("Before adding image to preloadedImages");
                     if (image != null)
                             cache.get(die).get(result).add(image);
-                    //System.out.println("READING IMAGE AFTER");
                     imageNumber++;
                 } catch (IOException e){
-                    System.out.println("FAILED TO LOAD EXISTING IMAGE URL");
                     e.printStackTrace();
                 }
             } catch (IOException e) {
-                //System.out.println("getImages Exception");
                 break;
             }
         }
     }
 
     private void DrawDiceFolders(HashMap<String, HashMap<Integer, ArrayList<Image>>> cache){
-        System.out.println("BEGIN NEW DRAW");
-        System.out.println("CACHE USED: " + ((cache.equals(cachesRegistry.get("cache1")))? "CACHE1" : "CACHE2"));
         // Clears the previously preloaded images
         // If round is odd, clears imagesCache1, since it was used to create the pieces in this round before the call to this method.
         for (int i = 1; i <= NUMBER_OF_SIDES; i++){
@@ -788,7 +781,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             hesitantProb = hesitantProb * 0.3; // reduces the probability of a sequential hesitant die animation
         }
 
-        //hesitantProb = 1;
         Random random = new Random();
         // BEGIN FEEDING HESITANT DIE IMAGES
         if (random.nextDouble() < hesitantProb){ //Choose among hesitant die animations for red or white die
@@ -808,8 +800,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 StringBuilder path = new StringBuilder();
                 path.append(folderPrefix).append((hesitantDie == 0) ? "W" : "R").append(animNumber).append("_")
                         .append(animVariation.get(random.nextInt(animVariation.size()))).append("_").append(i).append("/");
-                //System.out.println("HESITANT: PATH BEFORE GET IMAGES");
-                //System.out.println(path);
                 getImages(path.toString(), cache, (hesitantDie == 0) ? "white" : "red", i);
             }
             if (hesitantDie == 0) {
@@ -834,8 +824,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 path.append(RED_DIE_FOLDER_PATH).append("R").append(redAnimNumber).append("_")
                         .append(i).append("/");
 
-                //System.out.println("RED BEFORE GET IMAGES");
-                //System.out.println(path);
                 getImages(path.toString(), cache, "red", i);
             }
             lastAnimationUsed.put("red", new Object[]{redAnimNumber, false});
@@ -846,15 +834,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 path.append(WHITE_DIE_FOLDER_PATH).append("W").append(whiteAnimNumber).append("_")
                         .append(i).append("/");
 
-                //System.out.println("WHITE BEFORE GET IMAGES");
-                //System.out.println(path);
                 getImages(path.toString(), cache, "white", i);
             }
             lastAnimationUsed.put("white", new Object[]{whiteAnimNumber, false});
         }
-
-        //feedingImages = false; // Set to true in CreatePieces, after creation is finished and new feed from disk begins
-        System.out.println("FINISHED DRAW");
     }
     private void sendResults(int numberOfDice, int[] results){
         System.out.println("HTML: " + GlobalOptions.getInstance().chatterHTMLSupport() + " / HTML SETTINGS: " + GlobalOptions.getInstance().chatterHTMLSetting());
@@ -870,8 +853,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             report.append("* <b>" + playerId + "</b> " + whiteDie + " " + redDie);
 
             gameModule.getChatter().send(report.toString());
-            String s = "/d6 New string";
-
         } catch (IOException e){
             e.printStackTrace();
         }
@@ -937,14 +918,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }catch(IOException e){
 
         }
-        /*System.out.println("Before printing");
-        for (int i = 1; i <= 5; i++) {
-            for (int k = 1; k <= 6; k++) {
-                System.out.println("Number of animation: " + i +
-                        " brings the following patterns for /'/" + folderNameBuilder.get(i).get(k) +
-                        "/'/ result : " + k);
-            }
-        }*/
         return folderNameBuilder;
     }
 
@@ -989,12 +962,12 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 java.util.Timer timer;
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    //System.out.println("Mouse pressed action inside DelayedActionButton class: NEW ROLL");
-                    //System.out.println("isImageVisible: " + isImageVisible + " / isAnimationInProgress: " + isAnimationInProgress);
                     super.mousePressed(e);
+                    synchronized (removePieceSyncLock) {
+                        removePieces();
+                    }
                     mouseButtonPressed = true;
                     if (!isAnimationInProgress && isEnabled()) { // doesn't execute when pressed to hide the dices (dice images are still visible)
-                        //setCursor(dieCursor);
                         if (isShuffleSoundOn)
                             playSounds(shakingDiceAudioData);
                         mouseBiasFactor = new int[NUMBER_OF_DICE]; // We'll the number of factors correspondent to the number of dice;
@@ -1009,8 +982,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                             long colorCounter = 10;
                             @Override
                             public void run() {
-                                //System.out.println("Mouse Position: " + MouseInfo.getPointerInfo().getLocation());
-
                                 long elapsedTime = System.currentTimeMillis() - startTime;
                                 if (elapsedTime >= 5000) {
                                         this.cancel();
@@ -1033,7 +1004,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                                         counter[0] = counter[0] + 1;
                                     }
                                 }
-                                //System.out.println("Bias " + counter[0] + " = " + mouseBiasFactor[counter[0]]);
                             }
                         }, 0, 10);
                     }
@@ -1043,7 +1013,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 @Override
                 public void mouseReleased(MouseEvent e) {
                     super.mouseReleased(e);
-                    //setCursor(Cursor.getDefaultCursor());
                     Color originalColor = new Color(238,238,238);
                     JButton button = (JButton) e.getSource();
 
@@ -1053,8 +1022,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         } catch (InterruptedException a){
 
                         }
-                        synchronized (soundObject){
-                            soundObject.notify();
+                        synchronized (soundsLock){
+                            soundsLock.notify();
                         }
                         try{ // Necessary to allow sound to begin and notify to work properly
                             Thread.sleep(100);
@@ -1063,6 +1032,13 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         }
                         if (timer != null) {
                             timer.cancel();
+                        }
+                        while(isImageVisible){
+                            try{
+                                Thread.currentThread().wait();
+                            } catch (InterruptedException i){
+                                i.printStackTrace();
+                            }
                         }
                         if (e.getButton() == MouseEvent.BUTTON1) { // if left button, display animation
                             delayedActionListener.actionPerformed(new ActionEvent(this, ActionEvent.ACTION_PERFORMED, ""));
@@ -1106,6 +1082,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     this.results[1] = redResult;
                 }
                 animatedDice.results = this.results;
+                synchronized (animatedDice.removePieceSyncLock) {
+                    animatedDice.removePieces();
+                }
                 animatedDice.executeRoll(results.length);
             }
         }
