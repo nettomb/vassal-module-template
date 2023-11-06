@@ -206,6 +206,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             twoDiceButton.setToolTipText(TOOLTIP_TEXT);
             twoDiceButton.setMargin(new Insets(0,3,0,3));
 
+            /*
             // TEST CODE START
             // Bot
             JButton testButton = new JButton("Test Button");
@@ -233,6 +234,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             gameModule.getToolBar().add(globalPropertyTestButton);
 
             // TEST CODE END
+            */
 
             // ADD SETTINGS TO PREFERENCE WINDOW
             JToolBar toolBar = gameModule.getToolBar();
@@ -766,14 +768,13 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             String redDie = "";
             if (results.length == 2){
                 URL redDieIconURL = dataArchive.getURL(ICONS_IMAGES_PATH + "red" + results[1] + ".png");
-                redDie = "<img src='" + redDieIconURL + "' width='25' height='25' style='vertical-align: middle;>";
+                redDie = "<img src='" + redDieIconURL + "' width='25' height='25'>";
             }
             URL whiteDieIconURL = dataArchive.getURL(ICONS_IMAGES_PATH + "white" + results[0] + ".png");
-            String whiteDie = "<img src='" + whiteDieIconURL + "' width='25' height='25' style='vertical-align: middle;'>";
-            StringBuilder report = new StringBuilder();
-            report.append("* <b>").append(playerId).append("</b> ").append(whiteDie).append(" ").append(redDie);
+            String whiteDie = "<img src='" + whiteDieIconURL + "' width='25' height='25'>";
+            String message = "* | <b>" + playerId + "</b> " + whiteDie + " " + redDie;
 
-            gameModule.getChatter().send(report.toString());
+            gameModule.getChatter().send(message);
         } catch (IOException e){
             e.printStackTrace();
         }
