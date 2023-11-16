@@ -86,8 +86,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final HashMap<String, HashMap<Integer, ArrayList<Image>>> imagesCache2;
     private volatile ProjectingPiece redProjectingPiece = null;
     private volatile ProjectingPiece whiteProjectingPiece = null;
-    private boolean isFeedingCache1;
-    private boolean isFeedingCache2;
+    private volatile boolean isFeedingCache1;
+    private volatile boolean isFeedingCache2;
     private boolean oddRound = true;
     private int numberOfDice;
     private final HashMap<Integer, HashMap<Integer, ArrayList<Integer>>> redHesitantDieFolderBuilder; //Keep data taken from a txt file to reproduce the folder names for hesitant dice. Key: Animation number / Key: die result / value: rejected die value (middle number in folder name)
@@ -658,7 +658,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private ProjectingPiece createProjectingPiece(String die, int result, String cache){
         ArrayList<Image> images = new ArrayList<>();
 
-        for (Object image: (cache.equals("cache1") ? imagesCache1.get(die).get(result) : imagesCache2.get(die).get(result))){
+        for (Object image: (cache.equals("cache1")) ? imagesCache1.get(die).get(result) : imagesCache2.get(die).get(result)){
             images.add((Image)image);
         }
 
@@ -774,7 +774,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             String whiteDie = "<img src='" + whiteDieIconURL + "' width='25' height='25'>";
             String message = "* | <b>" + playerId + "</b> " + whiteDie + " " + redDie;
 
-            gameModule.getChatter().send(message);
+            Command c = new Chatter.DisplayText(gameModule.getChatter(), message);
+            c.execute();
+            gameModule.sendAndLog(c);
         } catch (IOException e){
             e.printStackTrace();
         }
@@ -785,7 +787,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         int[] alteredRolls = new int[unalteredRolls.length]; // Rolls after bias application
 
         for (int i = 0; i < unalteredRolls.length; i++){
-            alteredRolls[i] = (unalteredRolls[i] + mouseBiasFactor[i] % 6);
+            alteredRolls[i] = (unalteredRolls[i] + Math.abs(mouseBiasFactor[i] % 6));
             if (alteredRolls[i] > 6)
                 alteredRolls[i] = alteredRolls[i] - 6;
         }
