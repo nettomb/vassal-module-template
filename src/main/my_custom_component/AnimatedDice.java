@@ -55,7 +55,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final String DICE_SOUND_SETTINGS = "diceSoundSettings";
     private final String TOOLTIP_TEXT = "<html><ul><li>Left Click to <b>ROLL</b>. " +
             "<li>Right Click to get a <b>QUICK ROLL</b>, without animation." +
-            "<li>Keep button pressed to <b>SHUFFLE</b> the initial random result according to mouse movement pattern." +
+            "<li>Keep button pressed to <b>SHUFFLE</b>. Mouse movement will be registered until the button is released and will affect the final result." +
             "<br><br>Go to <b>PREFERENCES</b> to change Animated Dice properties like speed, position etc.</li></html>";
     private int dicePositionSettings;
     private int MAX_HORIZONTAL_OFFSET = 0;
@@ -772,7 +772,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             }
             URL whiteDieIconURL = dataArchive.getURL(ICONS_IMAGES_PATH + "white" + results[0] + ".png");
             String whiteDie = "<img src='" + whiteDieIconURL + "' width='25' height='25'>";
-            String message = "* | <b>" + playerId + "</b> " + whiteDie + " " + redDie;
+            String message = "- | <b>" + playerId + "</b> " + whiteDie + " " + redDie;
 
             Command c = new Chatter.DisplayText(gameModule.getChatter(), message);
             c.execute();
@@ -967,10 +967,12 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                             delayedActionListener.actionPerformed(new ActionEvent(this, ActionEvent.ACTION_PERFORMED, ""));
                         } else {
                             if (e.getSource() == oneDieButton){
-                                RollDices(1, 6);
+                                results = RollDices(1, 6);
+                                sendResults(results);
                             }
                             if (e.getSource() == twoDiceButton){
-                                RollDices(2, 6);
+                                results = RollDices(2, 6);
+                                sendResults(results);
                             }
                         }
                     }
