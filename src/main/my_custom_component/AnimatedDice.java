@@ -797,8 +797,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         int[] rawRolls = new int[nDice];
 
         for(int i = 0; i < nDice; ++i) {
-            Random ran = new Random();
+            Random ran = gameModule.getRNG();
             int roll = ran.nextInt(nSides) + 1;
+            System.out.println("Roll: " + roll);
             rawRolls[i] = roll;
         }
 
@@ -906,7 +907,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                             @Override
                             public void run() {
                                 long elapsedTime = System.currentTimeMillis() - startTime;
-                                if (elapsedTime >= 5000) {
+                                if (elapsedTime >= 4000) {
                                         this.cancel();
                                 } else {
                                     if (elapsedTime > colorCounter) {
@@ -956,13 +957,13 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         if (timer != null) {
                             timer.cancel();
                         }
-                        while(isImageVisible){
+                        /*while(isImageVisible){
                             try{
                                 Thread.currentThread().wait();
                             } catch (InterruptedException i){
                                 i.printStackTrace();
                             }
-                        }
+                        }*/
                         if (e.getButton() == MouseEvent.BUTTON1) { // if left button, display animation
                             delayedActionListener.actionPerformed(new ActionEvent(this, ActionEvent.ACTION_PERFORMED, ""));
                         } else {
