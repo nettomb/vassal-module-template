@@ -20,6 +20,7 @@ import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.Clip;
 import javax.swing.*;
+import javax.swing.Timer;
 import java.awt.*;
 import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
@@ -81,7 +82,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final int MAX_ON_SCREEN_DURATION = 1000;
     private final int MIN_ON_SCREEN_DURATION = 0;
     private ScheduledExecutorService scheduler; // Controls the frame rate of the displayed images
-    //private List<Image> images; // to be fed with the dice images that will be drawn on the pieces
     private final HashMap<String, HashMap<Integer, ArrayList<Image>>> imagesCache1; // set of preloaded images for each die and each result on the form: "Red": 6: List of images
     private final HashMap<String, HashMap<Integer, ArrayList<Image>>> imagesCache2;
     private volatile ProjectingPiece redProjectingPiece = null;
@@ -98,9 +98,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final int NUMBER_OF_HESITANT_DIE_ANIMATIONS = 5;
     private final Object soundsLock = new Object();
     private final Object removePieceSyncLock = new Object();
-    private byte[] dieAudioData;
-    private byte[] diceAudioData;
-    private byte[] shakingDiceAudioData;
+    private Clip dieClip;
+    private Clip diceClip;
+    private Clip shuffleClip;
     private int[] results;
     private boolean thisCaller = false;
     private final Map currentMap;
@@ -425,16 +425,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }).start();
     }
 
-    private void sendRolls(){
-        new Thread (()-> {
-            int[] testResult1 = {2, 4};
-            results = testResult1;
-            Command c = new Chatter.DisplayText(gameModule.getChatter(), playerId + " Rolling!!");
-            c.append(new RunDiceAnimationCommand(this, results[0], results.length == 1 ? 0 : results[1]));
-            c.execute();
-            gameModule.sendAndLog(c);
-        }).start();
-    }
     // TEST CODE END
 
     private void loadSounds(){
@@ -443,51 +433,42 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             InputStream dieSoundStream = dataArchive.getInputStream("DiceSounds/Selected1" + ".wav");
             InputStream diceSoundStream = dataArchive.getInputStream("DiceSounds/Selected2" + ".wav"); // For more than one die
             InputStream shakingDiceSoundStream = dataArchive.getInputStream("DiceSounds/Selected3" + ".wav"); // For shaking dice
-            dieAudioData = dieSoundStream.readAllBytes();
-            diceAudioData = diceSoundStream.readAllBytes();
-            shakingDiceAudioData = shakingDiceSoundStream.readAllBytes();
+            AudioInputStream audioInputStream = AudioSystem.getAudioInputStream(new ByteArrayInputStream(dieSoundStream.readAllBytes()));
+            dieClip = AudioSystem.getClip();
+            dieClip.open(audioInputStream);
+            audioInputStream = AudioSystem.getAudioInputStream(new ByteArrayInputStream(diceSoundStream.readAllBytes()));
+            diceClip = AudioSystem.getClip();
+            diceClip.open(audioInputStream);
+            audioInputStream = AudioSystem.getAudioInputStream(new ByteArrayInputStream(shakingDiceSoundStream.readAllBytes()));
+            shuffleClip = AudioSystem.getClip();
+            shuffleClip.open(audioInputStream);
             dieSoundStream.close();
             diceSoundStream.close();
             shakingDiceSoundStream.close();
-        } catch (IOException e) {
+            audioInputStream.close();
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private void playSounds(byte[] audioData){
-        final AudioInputStream[] audioInputStream = {null};
-        final Clip[] clip = {null};
-        try{
-            audioInputStream[0] = AudioSystem.getAudioInputStream(new ByteArrayInputStream(audioData));
-            clip[0] = AudioSystem.getClip();
-            clip[0].open(audioInputStream[0]);
+    private void playSounds(Clip clip){
+        //final AudioInputStream[] audioInputStream = {null};
+        //final Clip[] clip = {null};
+        if (clip != null) {
             new Thread(() -> {
-                clip[0].start();
+                clip.start();
                 try {
                     synchronized (soundsLock) {
                         soundsLock.wait();
                     }
-                } catch (InterruptedException e){
+                } catch (InterruptedException e) {
                     e.printStackTrace();
+                } finally {
+                    clip.stop();
+                    clip.setFramePosition(0);
+                    Thread.currentThread().interrupt();
                 }
-                clip[0].close();
-                try{  // Works without the try block, but seems to delay the first use of sounds
-                    audioInputStream[0].close();
-                } catch(IOException e){
-                    e.printStackTrace();
-                }
-                Thread.currentThread().interrupt();
             }).start();
-        } catch (Exception e){
-            e.printStackTrace();
-        } finally {
-            try {
-                if (audioInputStream != null) {
-                    audioInputStream[0].close();
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
         }
     }
 
@@ -502,7 +483,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         // ROLL DICE AND CREATE PIECES
         // Only rolls the dice if the current player is who called the roll. If the opposing player called the roll, display the animation based on the results passed to the global property diceRollCall
         if (thisCaller) {
-            results = RollDices(numberOfDice, NUMBER_OF_SIDES);
+            results = RollDice(numberOfDice, NUMBER_OF_SIDES);
             // After generating the results, sends a command to execute the animation in the opponents computer
             Command c = new Chatter.DisplayText(gameModule.getChatter(), playerId + " Rolling!!");
             c.append(new RunDiceAnimationCommand(this, results[0], results.length == 1 ? 0 : results[1]));
@@ -515,7 +496,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             redProjectingPiece = createProjectingPiece("red", results[1], oddRound? "cache1" : "cache2");
             whiteProjectingPiece = createProjectingPiece("white", results[0], oddRound? "cache1" : "cache2");
         }
-
         // START PRELOAD OF NEXT SET OF IMAGES
         //since we finished using the current Cache for creating pieces, we can begin to feed it again
         if (oddRound)
@@ -524,7 +504,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             isFeedingCache2 = true;
 
         ExecutorService executor = Executors.newSingleThreadExecutor(); // Create a single-threaded ExecutorService
-
+        System.out.println("point1");
         executor.submit(() -> {
             try {
                 HashMap<String, HashMap<Integer, ArrayList<Image>>> cacheUsed = oddRound ? imagesCache1 : imagesCache2;
@@ -543,9 +523,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         // START SOUNDS
         if (isDiceSoundOn) {
             if (numberOfDice == 1)
-                playSounds(dieAudioData);
+                playSounds(dieClip);
             else
-                playSounds(diceAudioData);
+                playSounds(diceClip);
         }
 
         // SET PARAMETERS
@@ -557,7 +537,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         int min_x = rectangle.x; // leftmost point of the current visible rectangle
         int x = (min_x + adjustedDicePositionSettings); // we add the adjusted offset to the leftmost point of the window.
         int y = rectangle.y;
-
 
         // PROJECTING PIECE METHOD
         scheduler = Executors.newSingleThreadScheduledExecutor();
@@ -782,7 +761,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
-    private int[] RollDices (int numberOfDice, int numberOfSides){
+    private int[] RollDice(int numberOfDice, int numberOfSides){
         int[] unalteredRolls = DR(numberOfDice,numberOfSides);
         int[] alteredRolls = new int[unalteredRolls.length]; // Rolls after bias application
 
@@ -799,7 +778,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         for(int i = 0; i < nDice; ++i) {
             Random ran = gameModule.getRNG();
             int roll = ran.nextInt(nSides) + 1;
-            System.out.println("Roll: " + roll);
             rawRolls[i] = roll;
         }
 
@@ -883,7 +861,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
         private void setupMouseListener() {
             addMouseListener(new MouseAdapter() {
-                java.util.Timer timer;
+                //java.util.Timer timer;
+                private Timer timer;
                 @Override
                 public void mousePressed(MouseEvent e) {
                     super.mousePressed(e);
@@ -893,43 +872,40 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     mouseButtonPressed = true;
                     if (!isAnimationInProgress && isEnabled()) { // doesn't execute when pressed to hide the dices (dice images are still visible)
                         if (isShuffleSoundOn)
-                            playSounds(shakingDiceAudioData);
+                            playSounds(shuffleClip);
                         mouseBiasFactor = new int[NUMBER_OF_DICE]; // We'll the number of factors correspondent to the number of dice;
                         Arrays.fill(mouseBiasFactor, 1);
-                        final int[] counter = new int[]{0}; // Use of single element array in order to be able to change it inside runnable.
-                        final long startTime = System.currentTimeMillis();
-                        timer = new java.util.Timer();
                         JButton button = (JButton) e.getSource();
-                        Color originalColor = new Color(238,238,238);
+                        ActionListener timerAction = new ActionListener() {
+                            private long colorCounter = 10;
+                            private int counter = 0; // Use of single element array in order to be able to change it inside runnable.
+                            private long startTime = System.currentTimeMillis();
 
-                        timer.schedule(new TimerTask() {
-                            long colorCounter = 10;
                             @Override
-                            public void run() {
+                            public void actionPerformed(ActionEvent e) {
                                 long elapsedTime = System.currentTimeMillis() - startTime;
                                 if (elapsedTime >= 4000) {
-                                        this.cancel();
+                                    timer.stop();
                                 } else {
                                     if (elapsedTime > colorCounter) {
-                                        if (button.getBackground() == originalColor)
-                                            button.setBackground(Color.YELLOW);
-                                        else
-                                            button.setBackground(originalColor);
+                                        button.setBackground(
+                                                button.getBackground() == Color.YELLOW ? Color.WHITE : Color.YELLOW);
                                         colorCounter += 100;
                                     }
 
-                                    mouseBiasFactor[counter[0]] += MouseInfo.getPointerInfo().getLocation().x + MouseInfo.getPointerInfo().getLocation().y;
-                                    if (mouseBiasFactor[counter[0]] > 10000)
-                                        mouseBiasFactor[counter[0]] = mouseBiasFactor[counter[0]] - 10000;
+                                    mouseBiasFactor[counter] += MouseInfo.getPointerInfo().getLocation().x
+                                            + MouseInfo.getPointerInfo().getLocation().y;
 
-                                    if (counter[0] == mouseBiasFactor.length - 1) {
-                                        counter[0] = 0;
-                                    } else {
-                                        counter[0] = counter[0] + 1;
-                                    }
+                                    if (mouseBiasFactor[counter] > 10000)
+                                        mouseBiasFactor[counter] = mouseBiasFactor[counter] - 10000;
+
+                                    counter = (counter + 1) % mouseBiasFactor.length;
                                 }
                             }
-                        }, 0, 10);
+                        };
+
+                        timer = new Timer(10, timerAction);
+                        timer.start();
                     }
                 }
 
@@ -955,24 +931,17 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                             a.printStackTrace();
                         }
                         if (timer != null) {
-                            timer.cancel();
+                            timer.stop();
                         }
-                        /*while(isImageVisible){
-                            try{
-                                Thread.currentThread().wait();
-                            } catch (InterruptedException i){
-                                i.printStackTrace();
-                            }
-                        }*/
                         if (e.getButton() == MouseEvent.BUTTON1) { // if left button, display animation
                             delayedActionListener.actionPerformed(new ActionEvent(this, ActionEvent.ACTION_PERFORMED, ""));
                         } else {
                             if (e.getSource() == oneDieButton){
-                                results = RollDices(1, 6);
+                                results = RollDice(1, 6);
                                 sendResults(results);
                             }
                             if (e.getSource() == twoDiceButton){
-                                results = RollDices(2, 6);
+                                results = RollDice(2, 6);
                                 sendResults(results);
                             }
                         }
