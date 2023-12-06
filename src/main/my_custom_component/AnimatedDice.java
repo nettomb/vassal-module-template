@@ -6,7 +6,6 @@ import VASSAL.build.module.Chatter;
 import VASSAL.build.module.GlobalOptions;
 import VASSAL.build.module.Map;
 import VASSAL.build.module.ModuleExtension;
-import VASSAL.build.module.documentation.HelpFile;
 import VASSAL.command.Command;
 import VASSAL.command.CommandEncoder;
 import VASSAL.command.RemovePiece;
@@ -20,20 +19,44 @@ import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.Clip;
 import javax.swing.*;
-import javax.swing.Timer;
 import java.awt.*;
 import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.io.*;
 import java.net.URL;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+/*MIT License
 
+        Copyright (c) 2023 MARCELLO BARROZO NETTO
+
+        Permission is hereby granted, free of charge, to any person obtaining a copy
+        of this software and associated documentation files (the "Software"), to deal
+        in the Software without restriction, including without limitation the rights
+        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions:
+
+        The above copyright notice and this permission notice shall be included in all
+        copies or substantial portions of the Software.
+
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        SOFTWARE.
+
+ */
 public final class AnimatedDice extends ModuleExtension implements CommandEncoder, Buildable{
     private GameModule gameModule;
     private final DataArchive dataArchive;
@@ -107,12 +130,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final String playerId = GlobalOptions.getInstance().getPlayerId();
 
 
-
-    // TEST CODE START
-    private boolean testRunning = false;
-
-    // TEST CODE END
-
     public AnimatedDice(){
         super(GameModule.getGameModule().getDataArchive());
         isImageVisible = false;
@@ -155,10 +172,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         // LOAD FIRST SET OF IMAGES
         DrawDiceFolders(imagesCache1);
         DrawDiceFolders(imagesCache2);
-    }
-
-    public static void main(String[] args) {
-
     }
 
     @Override
@@ -395,38 +408,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         }
     }
 
-    // TEST CODE START
-    private void testRoutine(){
-        new Thread (() -> {
-            Robot robot;
-            try {
-                robot = new Robot();
-            } catch (AWTException e) {
-                e.printStackTrace();
-                return; // Handle the exception appropriately based on your application's requirements
-            }
-
-            while (testRunning) {
-                try {
-
-                    // Move the mouse cursor to a specific position
-                    int x = 190; // X-coordinate
-                    int y = 70; // Y-coordinate
-                    robot.mouseMove(x, y);
-                    // Simulate a left mouse button click
-                    robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
-                    robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {
-
-                }
-            }
-            Thread.currentThread().interrupt();
-        }).start();
-    }
-
-    // TEST CODE END
-
     private void loadSounds(){
         try {
             // Preload the audio data into memory
@@ -504,7 +485,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             isFeedingCache2 = true;
 
         ExecutorService executor = Executors.newSingleThreadExecutor(); // Create a single-threaded ExecutorService
-        System.out.println("point1");
         executor.submit(() -> {
             try {
                 HashMap<String, HashMap<Integer, ArrayList<Image>>> cacheUsed = oddRound ? imagesCache1 : imagesCache2;
@@ -747,10 +727,10 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             String redDie = "";
             if (results.length == 2){
                 URL redDieIconURL = dataArchive.getURL(ICONS_IMAGES_PATH + "red" + results[1] + ".png");
-                redDie = "<img src='" + redDieIconURL + "' width='25' height='25'>";
+                redDie = "<img src='" + redDieIconURL + "'>";
             }
             URL whiteDieIconURL = dataArchive.getURL(ICONS_IMAGES_PATH + "white" + results[0] + ".png");
-            String whiteDie = "<img src='" + whiteDieIconURL + "' width='25' height='25'>";
+            String whiteDie = "<img src='" + whiteDieIconURL + "'>";
             String message = "- | <b>" + playerId + "</b> " + whiteDie + " " + redDie;
 
             Command c = new Chatter.DisplayText(gameModule.getChatter(), message);
@@ -824,30 +804,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         return folderNameBuilder;
     }
 
-    @Override
-    public String[] getAttributeNames(){
-        return new String[]{"AnimatedDice"};
-    }
-    @Override
-    public void setAttribute(String attribute, Object object){
-        attribute = "AnimatedDice";
-        object = new AnimatedDice();
-    }
-
-    @Override
-    public String getAttributeValueString(String value){
-        return "AnimatedDice";
-    }
-
-    @Override
-    public HelpFile getHelpFile(){
-        return new HelpFile();
-    }
-    @Override
-    public Class<?>[] getAllowableConfigureComponents() {
-        return new Class[]{AnimatedDice.class};
-    }
-
     public class DelayedActionButton extends JButton {
         private boolean mouseButtonPressed = false;
         private final ActionListener delayedActionListener;
@@ -861,7 +817,6 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
         private void setupMouseListener() {
             addMouseListener(new MouseAdapter() {
-                //java.util.Timer timer;
                 private Timer timer;
                 @Override
                 public void mousePressed(MouseEvent e) {
@@ -873,12 +828,12 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     if (!isAnimationInProgress && isEnabled()) { // doesn't execute when pressed to hide the dices (dice images are still visible)
                         if (isShuffleSoundOn)
                             playSounds(shuffleClip);
-                        mouseBiasFactor = new int[NUMBER_OF_DICE]; // We'll the number of factors correspondent to the number of dice;
+                        mouseBiasFactor = new int[NUMBER_OF_DICE];
                         Arrays.fill(mouseBiasFactor, 1);
                         JButton button = (JButton) e.getSource();
                         ActionListener timerAction = new ActionListener() {
                             private long colorCounter = 10;
-                            private int counter = 0; // Use of single element array in order to be able to change it inside runnable.
+                            private int counter = 0;
                             private long startTime = System.currentTimeMillis();
 
                             @Override
@@ -917,7 +872,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                     JButton button = (JButton) e.getSource();
 
                     if (mouseButtonPressed && isEnabled()) {
-                        try{ // Necessary to allow sound to begin and notify to work properly
+                        try{ // Necessary to allow sound to begin and notify to work properly?
                             Thread.sleep(100);
                         } catch (InterruptedException a){
                             a.printStackTrace();
@@ -925,7 +880,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                         synchronized (soundsLock){
                             soundsLock.notify();
                         }
-                        try{ // Necessary to allow sound to begin and notify to work properly
+                        try{ // Necessary to allow sound to begin and notify to work properly?
                             Thread.sleep(100);
                         } catch (InterruptedException a){
                             a.printStackTrace();
