@@ -34,7 +34,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-/*MIT License
+/*
+        MIT License
 
         Copyright (c) 2023 MARCELLO BARROZO NETTO
 
@@ -77,6 +78,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private final String DICE_ON_SCREEN_DURATION_SETTINGS = "diceOnScreenDurationSettings";
     private final String SHUFFLE_SOUND_SETTINGS = "shuggleSoundSettings";
     private final String DICE_SOUND_SETTINGS = "diceSoundSettings";
+    private final String DISPLAY_NUMBERS_SETTINGS = "displayNumbersSetting";
+    private final String DISPLAY_DICE_IMAGES_SETTINGS = "displayDiceImagesSettings";
     private final String TOOLTIP_TEXT = "<html><ul><li>Left Click to <b>ROLL</b>. " +
             "<li>Right Click to get a <b>QUICK ROLL</b>, without animation." +
             "<li>Keep button pressed to <b>SHUFFLE</b>. Mouse movement will be registered until the button is released and will affect the final result." +
@@ -98,7 +101,9 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private int animationSpeed;
     private boolean isShuffleSoundOn;
     private boolean isDiceSoundOn;
-    private final int MAX_ANIMATION_SPEED = 100;
+    private boolean displayNumbers;
+    private boolean displayDiceImages;
+    private final int MAX_ANIMATION_SPEED = 50;
     private final int MIN_ANIMATION_SPEED = 1;
     private final int MIN_VIABLE_SPEED = 35;
     private int onScreenDuration;
@@ -143,6 +148,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
         twoDiceButtonVisible = true;
         isShuffleSoundOn = true;
         isDiceSoundOn = true;
+        displayNumbers = true;
+        displayDiceImages = true;
         hesitantDieProbability = 0.3; // must be multiplied by animations Ratio to ge the actual probability
         lastAnimationUsed = new HashMap<>(){{
             put("white", new Object[]{0, false});
@@ -219,41 +226,12 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             twoDiceButton.setToolTipText(TOOLTIP_TEXT);
             twoDiceButton.setMargin(new Insets(0,3,0,3));
 
-            /*
-            // TEST CODE START
-            // Bot
-            JButton testButton = new JButton("Test Button");
-            ActionListener listener = new ActionListener() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    if (testRunning){
-                        testRunning = false;
-                    } else {
-                        testRunning = true;
-                        testRoutine();
-                    }
-                }
-            };
-            testButton.addActionListener(listener);
-            gameModule.getToolBar().add(testButton);
-            //Global property test
-            JButton globalPropertyTestButton = new JButton("GP Test Button");
-            globalPropertyTestButton.addActionListener( new ActionListener() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    sendRolls();
-                }
-            });
-            gameModule.getToolBar().add(globalPropertyTestButton);
-
-            // TEST CODE END
-            */
 
             // ADD SETTINGS TO PREFERENCE WINDOW
             JToolBar toolBar = gameModule.getToolBar();
 
             // ...BUTTONS INDEX
-            final IntConfigurer buttonsIndexSettings = new IntConfigurer(BUTTONS_INDEX_SETTINGS, "Buttons Position: ", diceToolbarIndex);
+            final IntConfigurer buttonsIndexSettings = new IntConfigurer(BUTTONS_INDEX_SETTINGS, "Buttons position ", diceToolbarIndex);
             gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, buttonsIndexSettings);
             diceToolbarIndex = (int) gameModule.getPrefs().getValue(BUTTONS_INDEX_SETTINGS);
 
@@ -289,8 +267,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             toolBar.add(twoDiceButton, diceToolbarIndex);
 
             // ...HIDE BUTTONS
-            final BooleanConfigurer oneDieButtonSettings = new BooleanConfigurer(ONE_DIE_BUTTON_SETTINGS, "ONE DIE BUTTON ", oneDieButtonVisible);
-            final BooleanConfigurer twoDiceButtonSettings = new BooleanConfigurer(TWO_DICE_BUTTON_SETTINGS, "TWO DICE BUTTON ", twoDiceButtonVisible);
+            final BooleanConfigurer oneDieButtonSettings = new BooleanConfigurer(ONE_DIE_BUTTON_SETTINGS, "One die button ", oneDieButtonVisible);
+            final BooleanConfigurer twoDiceButtonSettings = new BooleanConfigurer(TWO_DICE_BUTTON_SETTINGS, "Two dice button ", twoDiceButtonVisible);
             gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, oneDieButtonSettings);
             gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, twoDiceButtonSettings);
             oneDieButtonVisible = (boolean) gameModule.getPrefs().getValue(ONE_DIE_BUTTON_SETTINGS);
@@ -315,7 +293,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             twoDiceButton.setVisible((boolean) gameModule.getPrefs().getValue(TWO_DICE_BUTTON_SETTINGS));
 
             // ...DICE ON SCREEN DURATION
-            final IntConfigurer onScreenDurationSettings = new IntConfigurer(DICE_ON_SCREEN_DURATION_SETTINGS, "On Screen Duration (MAX: " + MAX_ON_SCREEN_DURATION + " / MIN: " + MIN_ON_SCREEN_DURATION + ")", onScreenDuration);
+            final IntConfigurer onScreenDurationSettings = new IntConfigurer(DICE_ON_SCREEN_DURATION_SETTINGS, "Buttons on screen delay (MIN: " + MIN_ON_SCREEN_DURATION + " / MAX: " + MAX_ON_SCREEN_DURATION  + ")", onScreenDuration);
             gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, onScreenDurationSettings);
             onScreenDuration = (int) gameModule.getPrefs().getValue(DICE_ON_SCREEN_DURATION_SETTINGS);
 
@@ -335,7 +313,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             });
 
             // ...FRAME RATE
-            final IntConfigurer frameRateSettings = new IntConfigurer(FRAME_RATE_SETTINGS, "Animation Speed (MAX: " + MAX_ANIMATION_SPEED + " / MIN: " + MIN_ANIMATION_SPEED + ")", animationSpeed);
+            final IntConfigurer frameRateSettings = new IntConfigurer(FRAME_RATE_SETTINGS, "Animation Speed (MIN: " + MIN_ANIMATION_SPEED  + " / MAX: " + MAX_ANIMATION_SPEED  + ")", animationSpeed);
             gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, frameRateSettings);
             animationSpeed = Integer.parseInt(gameModule.getPrefs().getValue(FRAME_RATE_SETTINGS).toString()) + MIN_VIABLE_SPEED;
 
@@ -361,7 +339,7 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
             // ...DICE POSITION
             MAX_HORIZONTAL_OFFSET = currentMap.getView().getMaximumSize().width; // IMPLEMENT!!
 
-            final IntConfigurer dicePositionSettings = new IntConfigurer(DICE_POSITION_SETTINGS, "Screen Position (MAX: " + MAX_HORIZONTAL_OFFSET + " / MIN: " + 0 + ")", this.dicePositionSettings);
+            final IntConfigurer dicePositionSettings = new IntConfigurer(DICE_POSITION_SETTINGS, "Animation screen position (MIN: " + 0 + " / MAX: " + MAX_HORIZONTAL_OFFSET + ")", this.dicePositionSettings);
             gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, dicePositionSettings);
             this.dicePositionSettings = Integer.parseInt(gameModule.getPrefs().getValue(DICE_POSITION_SETTINGS).toString());
 
@@ -387,8 +365,8 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
 
             // SOUNDS BUTTONS
             // ...HIDE BUTTONS
-            final BooleanConfigurer shuffleSoundSettings = new BooleanConfigurer(SHUFFLE_SOUND_SETTINGS, "SHUFFLE SOUND", isShuffleSoundOn);
-            final BooleanConfigurer diceSoundSettings = new BooleanConfigurer(DICE_SOUND_SETTINGS, "DICE SOUND", isDiceSoundOn);
+            final BooleanConfigurer shuffleSoundSettings = new BooleanConfigurer(SHUFFLE_SOUND_SETTINGS, "Shuffle sound", isShuffleSoundOn);
+            final BooleanConfigurer diceSoundSettings = new BooleanConfigurer(DICE_SOUND_SETTINGS, "Dice sound", isDiceSoundOn);
             gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, shuffleSoundSettings);
             gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, diceSoundSettings);
             isShuffleSoundOn = (boolean) gameModule.getPrefs().getValue(SHUFFLE_SOUND_SETTINGS);
@@ -403,6 +381,28 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
                 @Override
                 public void propertyChange(PropertyChangeEvent evt){
                     isDiceSoundOn = (boolean) gameModule.getPrefs().getValue(DICE_SOUND_SETTINGS);
+                }
+            });
+
+            // DISPLAY NUMBERS IN CHAT
+            final BooleanConfigurer resultsNumberSettings = new BooleanConfigurer(DISPLAY_NUMBERS_SETTINGS, "Display results as numbers in chat window ", displayNumbers);
+            gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, resultsNumberSettings);
+            displayNumbers = (boolean) gameModule.getPrefs().getValue(DISPLAY_NUMBERS_SETTINGS);
+            resultsNumberSettings.addPropertyChangeListener(new PropertyChangeListener() {
+                @Override
+                public void propertyChange(PropertyChangeEvent evt){
+                    displayNumbers = (boolean) gameModule.getPrefs().getValue(DISPLAY_NUMBERS_SETTINGS);
+                }
+            });
+
+            // DISPLAY DICE IMAGES IN CHAT
+            final BooleanConfigurer diceImagesSettings = new BooleanConfigurer(DISPLAY_DICE_IMAGES_SETTINGS, "Display dice images in chat window", displayDiceImages);
+            gameModule.getPrefs().addOption(ANIMATED_DICE_PREFERENCES, diceImagesSettings);
+            displayDiceImages = (boolean) gameModule.getPrefs().getValue(DISPLAY_DICE_IMAGES_SETTINGS);
+            diceImagesSettings.addPropertyChangeListener(new PropertyChangeListener() {
+                @Override
+                public void propertyChange(PropertyChangeEvent evt){
+                    displayDiceImages = (boolean) gameModule.getPrefs().getValue(DISPLAY_DICE_IMAGES_SETTINGS);
                 }
             });
         }
@@ -725,13 +725,23 @@ public final class AnimatedDice extends ModuleExtension implements CommandEncode
     private void sendResults(int[] results){
         try {
             String redDie = "";
+            String redDieNumber = " ";
+            String whiteDie = "";
+            String whiteDieNumber = "";
             if (results.length == 2){
                 URL redDieIconURL = dataArchive.getURL(ICONS_IMAGES_PATH + "red" + results[1] + ".png");
-                redDie = "<img src='" + redDieIconURL + "'>";
+                if (displayDiceImages)
+                    redDie = "<img src='" + redDieIconURL + "'>";
+                if (displayNumbers)
+                    redDieNumber = ",</b> " + "<style='font-size: 14; color: BF0000;'> <b>" + results[1] + "</b> </style>";
             }
             URL whiteDieIconURL = dataArchive.getURL(ICONS_IMAGES_PATH + "white" + results[0] + ".png");
-            String whiteDie = "<img src='" + whiteDieIconURL + "'>";
-            String message = "- | <b>" + playerId + "</b> " + whiteDie + " " + redDie;
+            if (displayDiceImages)
+                whiteDie = "<img src='" + whiteDieIconURL + "'>";
+            if (displayNumbers)
+                whiteDieNumber = "</b> <style='font-size: 14'> <b>" + + results[0];
+
+            String message = "- | <b>" + playerId + "  " + whiteDieNumber + redDieNumber + whiteDie + " " +  redDie ;
 
             Command c = new Chatter.DisplayText(gameModule.getChatter(), message);
             c.execute();
